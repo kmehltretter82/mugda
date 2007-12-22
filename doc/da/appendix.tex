@@ -1,0 +1,128 @@
+\appendix
+\chapter{Mugda implementation}
+$\mugda$ was implemented in the function language Haskell \cite{haskell}, using the Glasgow Haskell compiler (GHC) \cite{jones93glasgow}.
+
+\section{Source file listing}
+\begin{itemize}
+\item
+\texttt{Lexer.x} : the alex lexer file
+\item
+\texttt{Parser.y} : the happy parser file
+\item
+\texttt{Concrete.hs} : concrete syntax produced by the parser
+\item
+\texttt{TraceError.hs} : provides the user a trace when an error occurs
+\item
+\texttt{ScopeChecker.hs} : turns concrete into abstract syntax
+\item
+\texttt{Abstract.hs} : produced by the scope-checker, used during type-checking
+\item
+\texttt{Values.hs} : defines values , evaluation, signature , type-check monad
+\item
+\texttt{TypeChecker.hs} : type-checking with admissibility
+\item
+\texttt{Termination.hs} : syntactic termination check
+\item
+\texttt{Completeness.hs} : size pattern completeness check
+\item
+\texttt{SPos.hs} : strict positivity checker
+\item
+\texttt{Main.hs} : the main module
+\item
+\texttt{example} directory: example input files
+\item
+\texttt{Makefile} : for compilation
+\end{itemize}
+\section{Usage}
+
+\mugda as presented was pretty much directly transfered to ASCII syntax:
+\begin{itemize}
+\item
+lists of constructors and clauses are grouped with brackets \texttt{\{} \texttt{\}} and separated with semicolon \texttt{;}
+\item
+$\EPi{x}{A}{B}$ is written \texttt{(x : A) -> B }
+\item
+$A \ra B$ is written \texttt{A -> B}
+\item
+$\ELet{x}{A}{e}{f}$ is written \texttt{let x : A = e in f}
+\item
+$ \lam{x}e$ is written \verb+\x -> e +
+\item
+$ \inacc{e}$ is written \texttt{.e} 
+\item
+$ \infty$ is written \texttt{\#} 
+\item
+$\s$ is written \texttt{\$}
+\item
+one line comments are prefixed by \verb+--+
+\item
+multi-line comments are put between \verb+{-+ and \verb+-}+
+\end{itemize}
+a \texttt{let} declaration can be prefixed with \texttt{eval}. Then the value will be evaluated after type checking is done.
+As an example showing most of the syntactical features, here is the Fibonacci stream example (\texttt{examples/fib.ma}) in text format:
+\begin{verbatim}
+data Nat : Set {
+  zero : Nat;
+  succ : Nat -> Nat 
+}
+
+fun add : Nat -> Nat -> Nat {
+  add zero = \y -> y;
+  add (succ x) = \y -> succ (add x y)
+}
+
+sized codata Stream : Size -> Set {
+  cons : (i : Size) -> Nat -> Stream i -> Stream ($ i)
+}
+ 
+fun tail : Stream # -> Stream # {
+  tail (cons .# x xs) = xs
+}
+
+fun head : Stream # -> Nat {
+  head (cons .# x xs) = x
+}
+
+fun nth : Nat -> Stream # -> Nat {
+  nth zero xs = head xs;
+  nth (succ x) xs = nth x (tail xs) 
+}
+
+let 1 : Nat = (succ zero)
+
+cofun fib' : (x : Nat ) -> (y : Nat ) 
+               -> (i : Size ) -> Stream i {
+  fib' x y ($ i) = cons i x (fib' y (add x y) i)
+} 
+
+-- fib = 1, 1, 2, 3, 5 , 8 ...
+let fib : Stream # = (fib' 1 1 #)
+
+let 4 : Nat = (succ (succ (succ 1)))
+
+-- fib(4) = 5 
+eval let fib4 : Nat = nth 4 fib 
+\end{verbatim}
+Running \texttt{Main examples/fib.ma} yields the console output:
+\begin{verbatim}
+***** Mugda v1.0 *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+fib4 evaluates to (succ (succ (succ (succ (succ zero)))))
+\end{verbatim}
+
+\section{Some implementation details}
+The alex \cite{alex} and happy \cite{happy} tools were used to generate lexer and parser for $\mugda$.
+Most of the Haskell code is monadic, where \emph{monad transformers} \cite{Grabmueller2006MonadTransformers} are used to keep the signature in a state monad, to provide I/O and tracing of errors. The execution of $\mugda$ can be broken into 4 stages:
+\paragraph*{Parsing}
+The input file is parsed into \emph{concrete syntax}.
+\paragraph*{Scope-Checking}
+As mentioned in chapter 3, scope-checking is the first step after parsing.
+During parsing, it is not known whether an identifier is a variable or a constructor etc.
+If the $\mugda$ program is well-scoped, scope-checking produces \emph{abstract syntax} where all identifiers are categorized. In addition, some syntactic tests like checking linearity of patterns are done during this stage.
+\paragraph*{Type-Checking}
+Every declaration is type-checked.
+For mutual declarations, the type-checker also checks admissibility and finally invokes the termination-checker. 
+\paragraph*{Evaluation}
+For all declarations of the form \verb+eval let l : A = e+, \verb+e+ is evaluated and this value is displayed.

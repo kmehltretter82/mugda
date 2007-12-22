@@ -1,0 +1,19 @@
+# Makefile for miniagda
+
+files=Lexer Parser Abstract ScopeChecker TypeChecker Value Termination SPos Completness Concrete
+hsfiles=$(foreach file,$(files),$(file).hs)
+ghcflags=
+
+default : Main
+
+Main : Main.hs $(hsfiles)
+	ghc $(ghcflags) $< --make -o $@
+
+Lexer.hs : Lexer.x
+	alex $<
+
+Parser.hs : Parser.y Lexer.hs
+	happy $<
+
+
+# EOF
