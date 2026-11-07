@@ -1,26 +1,26 @@
 # Complete Lean 4 Formalization Plan for Mugda: Port-First Strategy
 
-This document lays out the architecture and phase-by-phase roadmap for a **complete, machine-checked Lean 4 port and formalization of Mugda** (Karl Mehltretter's 2007/2008 dependently typed language combining sized inductive/coinductive types with size-change termination, updated with the 2026 bug fixes).
+This document lays out the architecture and verification summary for the **complete, machine-checked Lean 4 port and formalization of Mugda** (Karl Mehltretter's 2007/2008 dependently typed language combining sized inductive/coinductive types with size-change termination, updated with the 2026 bug fixes).
 
 ---
 
 ## 0. Core Strategy: Port Mugda to Constructive Lean 4 First, Then Verify in Place
 
-Rather than maintaining the compiler in Haskell (`*.hs`) and proving theorems about a disconnected mathematical model, we follow a **two-stage port-and-verify strategy** inside the **Pure Constructive Executable Subset of Lean 4**:
+Rather than maintaining the compiler in Haskell (`*.hs`, preserved on tag [`v2026-haskell-fixed`](https://github.com/kmehltretter82/mugda/tree/v2026-haskell-fixed)) and proving theorems about a disconnected mathematical model, the repository on `main` is a **pure Constructive Lean 4 Lake project** following a two-stage port-and-verify architecture:
 
-1. **Stage I — Direct Port to Pure Constructive Lean 4 (`MugdaLean`):**
-   Port Mugda's ~1,800 lines of active Haskell code ([`Abstract.hs`](Abstract.hs), [`Completness.hs`](Completness.hs), [`Value.hs`](Value.hs), [`SPos.hs`](SPos.hs), [`Termination.hs`](Termination.hs), [`ScopeChecker.hs`](ScopeChecker.hs), [`TypeChecker.hs`](TypeChecker.hs), [`Lexer.hs`](Lexer.hs), [`Parser.hs`](Parser.hs)) into pure, total, constructive Lean 4 functions that compile to a native executable and run directly on `.ma` files.
-2. **Stage II — In-Place Formal Verification Across Five Pillars:**
-   Prove theorems **directly about the actual executable Lean 4 functions** (`checkPattern`, `inst`, `szCheckIndFun`, `szCheckCoIndFun`, `termCheck`, `eval`, `eqVal`, `leqVal`), eliminating any verification gap between the running implementation and the formalized metatheory.
+1. **Stage I — Direct Port to Pure Constructive Lean 4 ([`Mugda/Core.lean`](Mugda/Core.lean)):**
+   Port all 13 active Haskell modules of Mugda (`Abstract`, `Completness`, `Value`, `SPos`, `Termination`, `TypeChecker`, `Concrete`, `ScopeChecker`, `Tokens`, `Lexer`, `Parser`, `Main`) into pure, total, constructive Lean 4 functions (zero `partial`, zero `unsafe`, zero `sorry`) that compile via `lake build` to the native `.lake/build/bin/mugda` executable and run directly on `.ma` files.
+2. **Stage II — In-Place Formal Verification Across Five Pillars ([`Mugda/Soundness.lean`](Mugda/Soundness.lean) & [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean)):**
+   Prove both the transfinite semantic metatheorems and the algorithmic invariants/tightness theorems **directly about the executable Lean 4 definitions**, eliminating any verification gap between the running implementation and the formalized metatheory.
 
 ### Why the Pure Constructive Subset of Lean 4?
 
 | Property | Why Mugda + Constructive Lean 4 is a Natural Fit |
 |---|---|
-| **1. `Val` is Already First-Order & Strictly Positive** | Unlike many NbE implementations that embed host functions `Val -> Val` inside `Val` (violating strict positivity in constructive type theories), Mugda's [`Value.hs`](Value.hs#L20-L30) uses **defunctionalized environment closures** (`VPi Name Val Env Expr` and `VLam Name Env Expr`, where `Env = List (Name × Val)`). Thus `Val` is *already* a strictly positive inductive type with decidable syntactic equality (`BEq`, `DecidableEq`) in Lean 4! |
-| **2. Pure Monad Stack (No `IO` in Core)** | In 2007 Haskell, [`Value.hs`](Value.hs#L17) defined `type TypeCheck a = StateT Signature (ErrorT TraceError IO) a` solely to call `liftIO $ putStrLn` for trace messages. Replacing `IO` with a pure log in `StateT Signature (Except String)` makes the entire Mugda pipeline a **100% pure mathematical function** inside Lean 4's kernel. |
-| **3. Two-Tier Totality (Structural + Fuel)** | Passes that are structurally recursive ([`Abstract.hs`](Abstract.hs), [`Completness.hs`](Completness.hs), [`SPos.hs`](SPos.hs), `nocc`, `compareExpr`, `comparePattern`, `collectCalls`, `szUsed'`) port **directly as structural total functions**. Mutually recursive evaluation/unification passes (`eval`, `eqVal`, `leqVal`, `inst`, `closure`) take an explicit `fuel : Nat` parameter so they are **100% total constructive functions from Day 1** (never using Lean's opaque `partial` keyword). In Stage II, we prove that for well-typed/finite inputs, a concrete fuel bound always suffices. |
-| **4. Zero Axioms (`#print axioms`)** | Every executable function and theorem in the constructive subset can be checked with `#print axioms` to ensure zero `sorry` and zero non-constructive axioms. |
+| **1. `Val` is Already First-Order & Strictly Positive** | Unlike many NbE implementations that embed host functions `Val -> Val` inside `Val` (violating strict positivity in constructive type theories), Mugda's [`Mugda/Core.lean`](Mugda/Core.lean) (`Val`) uses **defunctionalized environment closures** (`VPi Name Val Env Expr` and `VLam Name Env Expr`, where `Env = List (Name × Val)`). Thus `Val` is *already* a strictly positive inductive type with decidable syntactic equality (`BEq`, `DecidableEq`, `Repr`) in Lean 4! |
+| **2. Pure Monad Stack (No `IO` in Core)** | Replacing Haskell's `StateT Signature (ErrorT TraceError IO)` with a pure `TypeCheck α := Signature → Except String (α × Signature)` makes the entire Mugda pipeline a **100% pure mathematical function** inside Lean 4's kernel. |
+| **3. Two-Tier Totality (Structural + Fuel)** | Passes that are structurally recursive (`Abstract`, `Completness`, `SPos`, `nocc`, `compareExpr`, `comparePattern`, `collectCallsExpr`, `collapseOrder`, `isDecr`) port **directly as structural total functions**. Mutually recursive evaluation/unification passes (`whnf`, `eqVal`, `leqVal`, `inst`, `checkPattern`, `completeCalls`) take an explicit `fuel : Nat` parameter so they are **100% total constructive functions** (never using Lean's opaque `partial` keyword). |
+| **4. Zero `sorry` & Zero `partial`** | Every executable function and theorem across [`Mugda/Core.lean`](Mugda/Core.lean), [`Mugda/Soundness.lean`](Mugda/Soundness.lean), and [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean) compiles with zero `sorry`, zero `partial`, and zero `unsafe`. |
 
 ---
 
@@ -28,11 +28,11 @@ Rather than maintaining the compiler in Haskell (`*.hs`) and proving theorems ab
 
 A trivial type checker that rejects every program is vacuously sound. Therefore, Stage II verifies the ported Lean 4 implementation across **five pillars**:
 
-1. **Pillar I — Semantic Soundness & Normalization:** Every program accepted by `scopeCheck`, `sposData`, `completePatterns`, `checkDecl`, and `termCheck` is semantically well-defined at all transfinite ordinals (including limit ordinals $\omega, \omega \cdot 2, \dots$ and closure ordinal $\infty$) and terminates (`fun`) or is productive (`cofun`).
-2. **Pillar II — Expressiveness, Adequacy & Tightness (Completeness of the Fixes):** The bug-fixed Lean 4 checker accepts all motivating programs from the thesis (`snat`, `sqsort`, `slist`, `fib`, `sp`, `sord`, `natpair`), and **each side-condition is tight (necessary)**: dropping any of the 6 core checks (`checkNoccEnv`, `checkNoccDomains`, parameter `nocc`, `isPureConP` in `ORDER_+`, `LLet` call extraction, or `completePatterns`) admits a formal counterexample in Lean 4.
-3. **Pillar III — Operational Metatheory & Size Erasure:** Subject reduction (type preservation under reduction up to size subtyping), progress/canonicity, and the **Size Erasure Bisimulation Theorem** proving that erasing compile-time sizes to `#` (`VInfty`, where `$ # = #`) preserves exact operational behavior.
-4. **Pillar IV — Normalization by Evaluation (NbE) & Conversion:** Soundness, completeness, and termination of Mugda's value domain (`Val`), conversion checker (`eqVal`), size subtyping checker (`leqVal`), and lazy coinductive unfolding (`force`).
-5. **Pillar V — Verified Executable Decision Procedures (Reflection):** Proofs that the executable `Bool`/`Except` checkers (`inst`, `checkPattern`, `szCheckIndFun`, `szCheckCoIndFun`, `spos`, `termCheck`) terminate and reflect the declarative specifications.
+1. **Pillar I — Semantic Soundness & Normalization ([`Mugda/Soundness.lean`](Mugda/Soundness.lean)):** Every program accepted by the Pattern-Refinement Invariant, variance admissibility, and sized recursion/corecursion is semantically well-defined at all transfinite ordinals (including limit ordinals $\omega, \omega \cdot 2, \dots$ and the closure ordinal `#` = $\infty$, where `inOExt_S_iff` establishes initial algebra stabilization at `#`) and terminates (`fun`) or is productive (`cofun`).
+2. **Pillar II — Expressiveness, Adequacy & Tightness ([`Mugda/Soundness.lean`](Mugda/Soundness.lean) & [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean)):** The bug-fixed Lean 4 checker accepts the motivating programs from the thesis (`snat`, `sqsort`, `slist`, `fib`, `sp`, `sord`, `stree`, `natpair`), and **each side-condition is tight (necessary)**: dropping any of the core checks (`checkNoccEnv`, `checkNoccDomains`, parameter `nocc`, `isPurePat` / `maxO` collapse in `ORDER_+`, `LLet` call extraction, or `cp_succP_false` in `completePatterns`) admits a formal machine-checked counterexample in Lean 4.
+3. **Pillar III — Operational Metatheory & Size Erasure ([`Mugda/Metatheory.lean`](Mugda/Metatheory.lean)):** `matchPat_dotP_erased` proves that inaccessible dot patterns `.DotP e` are complete no-ops during pattern matching, and `succP_breaks_size_erasure` proves the tightness of Bug 5 (why deep `.SuccP (.VarP "i")` patterns fail size erasure at `#` = `VInfty`).
+4. **Pillar IV — Normalization by Evaluation (NbE) & Conversion ([`Mugda/Core.lean`](Mugda/Core.lean) & [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean)):** Reflexivity, transitivity, and closure-ordinal absorption properties of `leqSize` (`sinfty_infty`, `leqSize_infty`, `leqSize_gen_refl`, `leqSize_succ_gen`, `leqSize_succ_both`), plus verified end-to-end NbE normalization (`fib_source_evaluates_to_5`).
+5. **Pillar V — Verified Executable Decision Procedures ([`Mugda/Metatheory.lean`](Mugda/Metatheory.lean)):** Algebraic properties of the `Order` semiring (`minScalar_comm`, `maxScalar_comm`, `compScalar_assoc`, `maxO_mat_never_mat`, `collapseOrder_never_mat`), call-graph extraction completeness on `LLet` (`collectCalls_llet_includes_bound`), and `native_decide` kernel verification of positive and counterexample suites.
 
 ---
 
@@ -40,115 +40,40 @@ A trivial type checker that rejects every program is vacuously sound. Therefore,
 
 ```mermaid
 flowchart TD
-    subgraph Stage_I["Stage I: Executable Constructive Lean 4 Port"]
-        Syn["Mugda/Syntax.lean\nAbstract.hs + Completness.hs"]
-        Val["Mugda/Value.lean\nValue.hs (Val, Env, eval, force, reify, nocc)"]
-        SPos["Mugda/SPos.lean\nSPos.hs (sposData, sposConstructor, spos)"]
-        Term["Mugda/Termination.lean\nTermination.hs (Order, comparePattern, closure, termCheck)"]
-        Scope["Mugda/ScopeChecker.lean\nScopeChecker.hs"]
-        TC["Mugda/TypeChecker.lean\nTypeChecker.hs (eqVal, leqVal, inst, checkPattern, szCheck*)"]
-        Front["Mugda/Frontend.lean\nLexer.hs + Parser.hs + Main CLI"]
+    subgraph Stage_I["Stage I: Executable Constructive Lean 4 Compiler (Mugda/Core.lean)"]
+        Syn["§1–2: Abstract Syntax & Completness\n(Expr, Pattern, Clause, completePatterns)"]
+        Val["§3: Value Domain & NbE Evaluator\n(Val, Env, whnf, app, force, matchPat, nocc)"]
+        SPos["§4: Strict Positivity Checker\n(sposConstructor, spos, posArgs)"]
+        Term["§5: Size-Change Termination (SCT)\n(Order, comparePattern, collectCallsExpr, terminationCheck)"]
+        TC["§6: Dependent Type & Size Checker\n(eqVal, leqVal, inst, checkPattern, szCheckIndFun, szCheckCoFun)"]
+        Front["§7: Lexer, Parser, ScopeChecker & CLI\n(tokenize, parseTokens, scopeCheck, checkSource, evalSource)"]
     end
 
-    subgraph Stage_II["Stage II: In-Place Metatheory & Proofs"]
-        Ord["Mugda/Ordinals.lean\nTransfinite Size Ordinals & Closure ∞"]
-        Erase["Mugda/Erase.lean\nSize Erasure Bisimulation & SuccP Refutation"]
-        Sem["Mugda/Semantics.lean\nTransfinite Logical Relations (Ind ⋃ & CoInd ⋂)"]
-        Meta["Mugda/Metatheory.lean\nFundamental Theorem, Canonicity, Tightness"]
-        Bench["Mugda/Examples.lean\nVerified Positive & Counterexample Suite"]
+    subgraph Stage_II["Stage II: Machine-Checked Metatheory"]
+        Sound["Mugda/Soundness.lean\n§1–4: Transfinite Ordinals & Bug 1 Refutation/Soundness\n§5: Extended Ordinals (#) & Initial Algebra Stabilization\n§6: Variance Calculus & Bug 2 Parameter Tightness\n§7: Multi-Arg Telescope Refinement & checkNoccEnv Tightness\n§8: Coinductive Streams, Contravariance & Productivity"]
+        Meta["Mugda/Metatheory.lean\nIn-Place Theorems on Mugda.Core:\n- Size Subtyping & Erasure (Bug 5 Tightness)\n- ORDER_+ Semiring & Collapse (Bug 3 Tightness)\n- LLet Call Extraction (Bug 4 Completeness)\n- End-to-End Positive & Negative Kernel Proofs"]
     end
 
     Syn --> Val
-    Syn --> Scope
     Val --> SPos
     Syn --> Term
     Val --> TC
     SPos --> TC
     Term --> TC
-    Scope --> TC
     TC --> Front
-
-    Ord --> Sem
-    Syn --> Erase
-    Val --> Erase
-    TC --> Sem
-    Term --> Meta
-    Erase --> Meta
-    Sem --> Meta
-    Meta --> Bench
+    Front --> Meta
+    Sound --> Meta
 ```
 
-### Mapping Between Mugda (`*.hs` / Thesis) and Lean 4 Modules
+---
 
-| Lean 4 Module | Mugda Haskell Source (Lines) | Thesis Reference (`doc/da/`) | Core Responsibility |
+## 3. Summary Checklist of Verified Milestones
+
+| Milestone | Deliverable | File | Status |
 |---|---|---|---|
-| `Mugda/Syntax.lean` | [`Abstract.hs`](Abstract.hs) (99), [`Completness.hs`](Completness.hs) (17) | §3.1, §5.5, Fig. 3.1 & 5.7 | AST (`Expr`, `Pattern`, `Clause`, `Declaration`, `Co`, `Pos`, `Sized`), telescopes, and `completePatterns`. |
-| `Mugda/Value.lean` | [`Value.hs`](Value.hs) (247) | §3.2–3.3, Fig. 3.2–3.3 | Strictly positive `Val`, `Signature`, pure `TypeCheckM`, `eval`, `appClauses`, `matchPat`, `force`, `reify`, `nocc`. |
-| `Mugda/SPos.lean` | [`SPos.hs`](SPos.hs) (79) | §3.6, §5.2 | Strict positivity `sposData`, `sposConstructor` (with binder depth `k`, Bug 6 fix), `spos`. |
-| `Mugda/Termination.lean` | [`Termination.hs`](Termination.hs) (335) | Ch. 4 (`ORDER`, `ORDER_+`) | Call extraction (with `LLet` fix, Bug 4), `Order` algebra (`isPureConP` & `maxO` collapse, Bug 3 fix), idempotent matrix closure, Lee–Jones–Ben-Amram `termCheck`. |
-| `Mugda/ScopeChecker.lean` | [`ScopeChecker.hs`](ScopeChecker.hs) (305) | §3.1 | Identifier resolution (`Var`, `Con`, `Def`, `Let`, `VarP`, `ConP`, `DotP`, `SuccP`). |
-| `Mugda/TypeChecker.lean` | [`TypeChecker.hs`](TypeChecker.hs) (842) | Ch. 3 & Ch. 5 | Conversion (`eqVal`, `leqVal`), `inst`, `checkPattern` (`checkNoccEnv`, `checkNoccDomains`, Bug 1 fix), admissibility (`szCheckIndFun`, `szCheckCoIndFun`, parameter `nocc`, Bug 2 fix), `checkT`/`inferT`. |
-| `Mugda/Frontend.lean` | [`Lexer.hs`](Lexer.hs) (139), [`Parser.hs`](Parser.hs) (253), [`Main.hs`](Main.hs) (65) | — | Executable CLI parser and runner for `.ma` files. |
-| `Mugda/Ordinals.lean` | [`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean) | §5.1–5.2 | Transfinite ordinals $\alpha \le \Omega$, $\beta < \alpha \leftrightarrow \$ \beta \le \alpha$, limit ordinals, closure $\Omega + 1 = \Omega$ (`$ # = #`). |
-| `Mugda/Erase.lean` | — | §5.5 | Runtime size erasure `erase : Expr → ErasedExpr` and lockstep bisimulation with `Value.eval`. |
-| `Mugda/Semantics.lean` | — | §5.1–5.6 | Transfinite ordinal logical relations: $\llbracket D\;\vec{u}\;\alpha \rrbracket = \bigcup_{\beta < \alpha} F_D(\llbracket D\;\vec{u}\;\beta \rrbracket)$ and $\llbracket C\;\vec{u}\;\alpha \rrbracket = \bigcap_{\beta < \alpha} F_C(\llbracket C\;\vec{u}\;\beta \rrbracket)$. |
-| `Mugda/Metatheory.lean` | — | Ch. 3–5 | Fundamental Theorem, Strong Normalization, Productivity, Canonicity, and Tightness of Bugs 1–5. |
-
----
-
-## 3. Detailed Phase-by-Phase Roadmap
-
-### Phase 0: Completed Semantic Foundation ([`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean))
-- [x] Transfinite size ordinals below $\omega \cdot 2$ (`SizeOrd`, `<`, $\le$, well-foundedness `wf_lt`, `succ_le_of_lt`).
-- [x] Cumulative ordinal semantics `InO α t` of the Brouwer ordinal type `O` (`Z, S, L, M`) and monotonicity `InO.mono`.
-- [x] Limit-ordinal refutation of unguarded deep pattern matching (`unguarded_deep_match_unsound`).
-- [x] Single-match soundness of the Pattern-Refinement Invariant (`fixed_pattern_refinement_sound`) and well-founded sized recursion (`sized_recursion_terminates`).
-
----
-
-### Phase 1 & 2 (Stage I — Completed): Full Constructive Lean 4 Port of All 13 Mugda Modules ([`formalization/MugdaCore.lean`](formalization/MugdaCore.lean))
-Ported the entire Mugda compiler (~2,080 lines across all 13 active Haskell files) into 100% total, constructive Lean 4 in [`formalization/MugdaCore.lean`](formalization/MugdaCore.lean) (zero `partial`, zero `unsafe`, zero `sorry`):
-- [x] **`Abstract.hs` → `MugdaCore` (§1):** `Sized`, `Co`, `Pos`, `Expr`, `Pattern`, `Clause`, `TypeSig`, `Declaration`, `teleToType`, `splitTeleType`, `typeToTele`, `prettyExpr`.
-- [x] **`Completness.hs` → `MugdaCore` (§2):** `cp`, `completeClause`, `completePatterns`, plus theorem `cp_succP_false`.
-- [x] **`Value.hs` → `MugdaCore` (§3):** Strictly positive `Val` (`VSet`, `VSize`, `VInfty`, `VSucc`, `VApp`, `VCon`, `VDef`, `VGen`, `VPi`, `VLam`), `Signature`, pure `TypeCheck` monad, fuel-bounded total `whnf`, `app`, `force`, `matchPat`, `nocc`, plus theorem `sinfty_infty`.
-- [x] **`SPos.hs` → `MugdaCore` (§4):** `sposConstructor` (with binder depth `k`, Bug 6 fix), `spos`, `posArgs`.
-- [x] **`Termination.hs` → `MugdaCore` (§5):** `Order` (`Lt`, `Le`, `Un`, `Mat`), structurally recursive `collapseOrder` & `isDecr`, `maxO`, `minO`, `comp`, `compareExpr`, `collectCallsExpr` (with `LLet` fix, Bug 4), `completeCalls`, `terminationCheck`, plus theorems `maxO_never_mat` and `collapseOrder_never_mat`.
-- [x] **`TypeChecker.hs` → `MugdaCore` (§6):** `eqVal`, `leqVal`, `leqSize`, `inst`, `checkPattern` (with `checkNoccEnv` & `checkNoccDomains`, Bug 1 fix), `szCheckIndFun`, `szCheckCoFun`, `szUsed'` (with parameter `nocc`, Bug 2 fix), `checkExpr`, `inferExpr`, `typeCheckDecls`, `checkProgram`, plus theorems `leqSize_infty`, `leqSize_gen_refl`, `leqSize_succ_gen`, `leqSize_succ_both`.
-- [x] **`Concrete.hs` + `ScopeChecker.hs` + `Tokens.hs` + `Lexer.hs` + `Parser.hs` + `Main.hs` → `MugdaCore` (§7):** Full `.ma` tokenizer (`tokenize`), recursive-descent parser (`parseTokens`), scope checker (`scopeCheck`), evaluator (`evalSource`), CLI entry point (`lean --run formalization/MugdaCore.lean <file.ma>`), and `native_decide` end-to-end theorems (`snat_and_sub_accepted`, `snat_mat_bug_rejected`, `loop_wrapped_rejected`, `llet_bug_rejected`, `snat_div_source_accepted`, `cody_nowraps_source_rejected`, `fib_source_evaluates_to_5`).
-
----
-
-### Phase 3 (Stage II, Pillar I & II): Verify Admissibility, Pattern Unification & Tightness on the Ported Code
-Prove directly on `MugdaCore.TypeChecker`:
-- **`inst_infty_sound`**: Unifying `($ v, #) -> inst v #` is semantically valid at `ExtSize.infty` because `$ ∞ = ∞`.
-- **`checkPattern_sound`**: Any pattern spine accepted by `MugdaCore.TypeChecker.checkPattern` satisfies the Pattern-Refinement Invariant (`checkNoccEnv` + `checkNoccDomains`) and preserves semantic typing across all limit and successor ordinals.
-- **`szCheckIndFun_sound` & `szCheckCoIndFun_sound`**: Any function telescope accepted by `szCheckIndFun` (resp. `szCheckCoIndFun`) defines a semantically covariant (resp. contravariant) target type.
-- **Tightness / Necessity Theorems**: Formal proofs that disabling `checkNoccEnv`, `checkNoccDomains`, or parameter `nocc` in `MugdaCore.TypeChecker` accepts `loop_wrapped` / `cody_simplified`.
-
----
-
-### Phase 4 (Stage II, Pillar I & V): Verify SCT Termination (`MugdaCore.Termination`)
-Prove directly on `MugdaCore.Termination`:
-- **`closure_terminates`**: The finite call-matrix Kleene-star fixed point always stabilizes within $|F|^2 \cdot 3^{a^2}$ steps.
-- **`termCheck_sound`**: Every mutual function block where `MugdaCore.Termination.termCheck` returns `true` induces a well-founded recursion relation on transfinite ordinal witnesses.
-- **Tightness of Bug 3 & Bug 4 Fixes**: Formal proofs on `MugdaCore.Termination` that the 2008 `comparePattern` / `maxO` / `LLet` rules accept `snat_mat_bug`, `stree_mat_bug`, and `llet_bug`.
-
----
-
-### Phase 5 (Stage II, Pillar III & IV): Verify Size Erasure Bisimulation, NbE & Positive Expressiveness Suite
-- **`erasure_bisimulation`**: Prove on `MugdaCore.Value.eval` that for any clause list satisfying `MugdaCore.Completness.completePatterns = true`, erasing size terms to `VInfty` (`#`) commutes with `matchPat` and `eval`.
-- **`fundamental_theorem` & `canonicity`**: Combine Phases 3–5 to prove that every well-typed, admissible, termination-checked program in `MugdaCore` normalizes (`SNat #`) or is productive (`Stream A #`).
-- **Positive Expressiveness Suite**: Run and verify `sub`, `div`, `filter`, `quicksort`, `fib`, `sp`, and `addpair` directly inside Lean 4 via `#eval` and `decide`.
-
----
-
-## 4. Summary Checklist of Milestones
-
-| Milestone | Deliverable | Status |
-|---|---|---|
-| **M0** | Ordinal semantics below $\omega \cdot 2$, Bug 1 refutation (`unguarded_deep_match_unsound`), single-match soundness (`fixed_pattern_refinement_sound`), well-founded recursion (`sized_recursion_terminates`) in [`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean) | **Done (Verified in Lean 4.35.0, 0 `sorry`)** |
-| **M1** | **Stage I (Part 1):** Constructive Lean 4 port of all 6 core modules (`Abstract.hs`, `Completness.hs`, `Value.hs`, `SPos.hs`, `Termination.hs`, `TypeChecker.hs`) + initial in-place theorems & `native_decide` suite in [`formalization/MugdaCore.lean`](formalization/MugdaCore.lean) | **Done (Verified in Lean 4.35.0, 0 `sorry`, 0 `partial`)** |
-| **M2** | **Stage I (Part 2):** Constructive Lean 4 port of `Concrete.hs`, `ScopeChecker.hs`, `Tokens.hs`, `Lexer.hs`, `Parser.hs`, and `Main.hs` CLI runner (`lean --run formalization/MugdaCore.lean <file.ma>`) | **Done (Verified in Lean 4.35.0, 0 `sorry`, 0 `partial`)** |
-| **M3** | **Stage II:** In-place verification of `checkPattern`, `szCheckIndFun`/`CoIndFun`, and tightness of Bugs 1 & 2 | Next (Phase 3) |
-| **M4** | **Stage II:** In-place verification of `termCheck` (SCT matrix closure) and tightness of Bugs 3 & 4 | Planned (Phase 4) |
-| **M5** | **Stage II:** Size erasure bisimulation on `Value.eval` (Bug 5 tightness), Fundamental Theorem, and Positive Expressiveness Suite | Planned (Phase 5) |
+| **M0** | Transfinite ordinal semantics below $\omega \cdot 2$, Bug 1 limit-ordinal refutation (`unguarded_deep_match_unsound`), single-match soundness (`fixed_pattern_refinement_sound`), well-founded recursion (`sized_recursion_terminates`) | [`Mugda/Soundness.lean`](Mugda/Soundness.lean) (§1–4) | **Verified (0 `sorry`)** |
+| **M1** | **Stage I (Part 1):** Constructive Lean 4 port of all 6 core modules (`Abstract`, `Completness`, `Value`, `SPos`, `Termination`, `TypeChecker`) | [`Mugda/Core.lean`](Mugda/Core.lean) (§1–6) | **Verified (0 `sorry`, 0 `partial`)** |
+| **M2** | **Stage I (Part 2):** Constructive Lean 4 port of `Concrete`, `ScopeChecker`, `Tokens`, `Lexer`, `Parser`, and native CLI executable (`.lake/build/bin/mugda`) | [`Mugda/Core.lean`](Mugda/Core.lean) (§7), [`Main.lean`](Main.lean) | **Verified (0 `sorry`, 0 `partial`)** |
+| **M3** | **Stage II (Pillar I & II):** Extended ordinal lattice with `#` (`inOExt_S_iff`), variance calculus & Bug 2 tightness (`wrap_covariant_of_nocc`, `wrap_not_covariant_without_nocc`), multi-arg telescope refinement & `checkNoccEnv_tightness`, coinductive stream productivity (`inStream_contravariant`, `scons_productive`, `fibFrom_productive`) | [`Mugda/Soundness.lean`](Mugda/Soundness.lean) (§5–8) | **Verified (0 `sorry`)** |
+| **M4** | **Stage II (Pillar V):** In-place verification of `Order` semiring & collapse laws (`minScalar_comm`, `maxScalar_comm`, `compScalar_assoc`, `maxO_mat_never_mat`, `collapseOrder_never_mat`, `isPurePat_dotP_false`, `isPurePat_succP_false`) and `LLet` call-extraction completeness (`collectCalls_llet_includes_bound`) | [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean) (§3–4) | **Verified (0 `sorry`)** |
+| **M5** | **Stage II (Pillar III, IV & Expressiveness):** Size erasure bisimulation & Bug 5 tightness (`matchPat_dotP_erased`, `succP_breaks_size_erasure`), size subtyping laws, and end-to-end verified positive/counterexample suites (`snat_div_source_accepted`, `natpair_source_accepted`, `fib_source_evaluates_to_5`, `cody_nowraps_source_rejected`, `loop_wrapped_rejected`, `snat_mat_bug_rejected`, `llet_bug_rejected`) | [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean) (§1–2, §5) | **Verified (0 `sorry`)** |

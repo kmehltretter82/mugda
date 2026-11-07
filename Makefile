@@ -1,14 +1,22 @@
-GHC ?= ghc
+# Makefile for Mugda (Constructive Lean 4 Edition)
 
-all : Main
+LAKE ?= lake
+MUGDA := .lake/build/bin/mugda
 
-Main : Tokens.hs Lexer.hs Parser.hs Abstract.hs Concrete.hs SPos.hs ScopeChecker.hs TraceError.hs TypeChecker.hs Value.hs Termination.hs Completness.hs Main.hs
-	$(GHC) --make Main.hs -o Main
+.PHONY: all build test clean
 
-# Optional regeneration with Alex and Happy if installed
-lexer-parser : Lexer.x Parser.y
-	alex Lexer.x
-	happy Parser.y
+all: build
 
-clean :
-	rm -f *.o *.hi Control/Monad/*.o Control/Monad/*.hi Main mugda
+build:
+	$(LAKE) build
+
+test: build
+	$(MUGDA) examples/fib.ma
+	$(MUGDA) examples/sqsort.ma
+	$(MUGDA) examples/slist.ma
+	$(MUGDA) examples/sp.ma
+	$(MUGDA) examples/stree.ma
+	$(MUGDA) examples/sord.ma
+
+clean:
+	$(LAKE) clean
