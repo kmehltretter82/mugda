@@ -143,6 +143,32 @@ def completeClause : Clause → Bool
 def completePatterns (cl : List Clause) : Bool :=
   cl.all completeClause
 
+/-- Check whether a subpattern of a shallow constructor pattern is a catch-all variable or dot pattern. -/
+def isShallowArgPat : Pattern → Bool
+  | .VarP _ => true
+  | .DotP _ => true
+  | _       => false
+
+/-- Check whether a pattern covers constructor `c` of arity `ar` (either via a catch-all
+    `.VarP`/`.DotP` or via `.ConP _ c pl` with `pl.length == ar` and shallow argument patterns). -/
+def patCoversCon (c : Name) (ar : Nat) : Pattern → Bool
+  | .VarP _       => true
+  | .DotP _       => true
+  | .ConP _ c' pl => (c' == c) && (pl.length == ar) && pl.all isShallowArgPat
+  | .SuccP _      => false
+
+def clauseCoversCon (c : Name) (ar : Nat) : Clause → Bool
+  | .mk [p] _ => patCoversCon c ar p
+  | _         => false
+
+def clausesCoverCon (c : Name) (ar : Nat) (cl : List Clause) : Bool :=
+  cl.any (clauseCoversCon c ar)
+
+/-- Decidable constructor exhaustiveness / coverage check for a single-argument
+    inductive clause list against a datatype's `(constructorName, arity)` signature. -/
+def checkConstructorCoverage (cons : List (Name × Nat)) (cl : List Clause) : Bool :=
+  cons.all fun (c, ar) => clausesCoverCon c ar cl
+
 /-! ## 3. Port of `Value.hs` (Semantic Domain, Pure Monad & Fuel-Bounded NbE) -/
 
 /-- First-order, strictly positive semantic value domain (`Value.hs` lines 20–30).
@@ -196,6 +222,12 @@ instance : BEq Val := ⟨valBeq⟩
 @[simp] theorem Val.bne_vinfty : (Val.VInfty != Val.VInfty) = false := rfl
 @[simp] theorem Val.beq_vgen (k1 k2 : Nat) : (Val.VGen k1 == Val.VGen k2) = (k1 == k2) := rfl
 @[simp] theorem Val.bne_vgen (k1 k2 : Nat) : (Val.VGen k1 != Val.VGen k2) = (k1 != k2) := rfl
+@[simp] theorem Val.beq_vsucc (v1 v2 : Val) : (Val.VSucc v1 == Val.VSucc v2) = (v1 == v2) := rfl
+@[simp] theorem Val.bne_vsucc (v1 v2 : Val) : (Val.VSucc v1 != Val.VSucc v2) = (v1 != v2) := rfl
+@[simp] theorem Val.beq_vcon (c1 c2 : Co) (n1 n2 : Name) :
+    (Val.VCon c1 n1 == Val.VCon c2 n2) = (c1 == c2 && n1 == n2) := rfl
+@[simp] theorem Val.bne_vcon (c1 c2 : Co) (n1 n2 : Name) :
+    (Val.VCon c1 n1 != Val.VCon c2 n2) = !(c1 == c2 && n1 == n2) := rfl
 
 abbrev TVal := Val
 abbrev Env := List (Name × Val)

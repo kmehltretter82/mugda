@@ -391,6 +391,172 @@ theorem matchClauses_conP_vgen_never_falls_through
   exact matchClauses_stuck_blocks_fallthrough (fuel + 1) (.ConP .Ind x args) pl rhs cl2 (.VGen k) vl st st
     (matchPat_conP_vgen_stuck fuel [] x args k st)
 
+/-! ### 2C. Constructor Exhaustiveness / Coverage Progress & NbE Fuel Invariance / Determinism -/
+
+/-- **Theorem 8f (Universal Total Matching of Shallow Argument Patterns `isShallowArgPat`)**:
+    Every pattern `p` satisfying `isShallowArgPat p = true` (`.VarP` or `.DotP`) matches
+    every value `v` with `.matched` in 1 step of fuel and leaves the signature state unchanged. -/
+theorem matchPat_isShallowArgPat
+    (fuel : Nat) (env : Env) (p : Pattern) (v : Val) (st : TCState)
+    (h : isShallowArgPat p = true) :
+    ∃ env', runTypeCheck st (matchPat (fuel + 1) env p v) = .ok (MatchResult.matched env', st) := by
+  cases p with
+  | VarP x => exact ⟨updateEnv env x v, rfl⟩
+  | DotP e => exact ⟨env, rfl⟩
+  | ConP _ _ _ => contradiction
+  | SuccP _ => contradiction
+
+/-- **Theorem 8g (Universal Total Matching of Shallow Pattern Lists `matchList`)**:
+    If `pl.all isShallowArgPat = true` and `pl.length = vs.length`, then `matchList`
+    succeeds with `MatchResult.matched` for any value list `vs`. -/
+theorem matchList_all_isShallowArgPat
+    (fuel : Nat) (env : Env) (pl : List Pattern) (vs : List Val) (st : TCState)
+    (hall : pl.all isShallowArgPat = true)
+    (hlen : pl.length = vs.length) :
+    ∃ env', runTypeCheck st (matchList (vs.length + fuel + 1) env pl vs) = .ok (MatchResult.matched env', st) := by
+  induction pl generalizing vs env st with
+  | nil =>
+    cases vs with
+    | nil => exact ⟨env, rfl⟩
+    | cons _ _ => contradiction
+  | cons p ps ih =>
+    cases vs with
+    | nil => contradiction
+    | cons v vs' =>
+      simp only [List.all_cons, Bool.and_eq_true] at hall
+      have hlen' : ps.length = vs'.length := Nat.succ.inj hlen
+      have ⟨env1, hp⟩ := matchPat_isShallowArgPat (vs'.length + fuel) env p v st hall.1
+      have ⟨env2, hps⟩ := ih env1 vs' st hall.2 hlen'
+      refine ⟨env2, ?_⟩
+      have h_eq : (v :: vs').length + fuel + 1 = (vs'.length + fuel + 1) + 1 := by
+        simp [List.length]; omega
+      rw [h_eq]
+      conv => lhs; unfold matchList
+      rw [runTypeCheck_bind, hp]
+      dsimp
+      exact hps
+
+@[simp] theorem force_vsucc (fuel : Nat) (v : Val) :
+    force (fuel + 1) (.VSucc v) = pure (.VSucc v) := rfl
+
+@[simp] theorem force_vcon (fuel : Nat) (co : Co) (c : Name) :
+    force (fuel + 1) (.VCon co c) = pure (.VCon co c) := rfl
+
+/-- **Theorem 8h (Coverage Progress on Nullary Constructors `patCoversCon c 0`)**:
+    Any pattern `p` satisfying `patCoversCon c 0 p = true` matches the closed nullary
+    constructor `.VCon .Ind c` with `MatchResult.matched`. -/
+theorem matchPat_patCoversCon_nullary
+    (fuel : Nat) (env : Env) (c : Name) (p : Pattern) (st : TCState)
+    (hcov : patCoversCon c 0 p = true) :
+    ∃ env', runTypeCheck st (matchPat (fuel + 2) env p (.VCon .Ind c)) = .ok (MatchResult.matched env', st) := by
+  cases p with
+  | VarP x => exact ⟨updateEnv env x (.VCon .Ind c), rfl⟩
+  | DotP e => exact ⟨env, rfl⟩
+  | SuccP _ => contradiction
+  | ConP co c' pl =>
+    unfold patCoversCon at hcov
+    simp only [Bool.and_eq_true, beq_iff_eq] at hcov
+    rcases hcov with ⟨⟨hc, hlen⟩, _⟩
+    subst hc
+    cases pl with
+    | nil =>
+      refine ⟨env, ?_⟩
+      cases co <;>
+        (conv => lhs; unfold matchPat) <;>
+        simp only [force_vcon, pure_bind] <;>
+        rw [beq_self_eq_true] <;>
+        rfl
+    | cons _ _ => contradiction
+
+/-- **Theorem 8i (Definite Mismatch on Distinct Nullary Constructor `.ConP .Ind c' []`)**:
+    Matching `.ConP .Ind c' []` against `.VCon .Ind c` when `c' ≠ c` returns `MatchResult.mismatch`
+    (never `.stuck`), allowing `matchClauses` to advance to subsequent clauses. -/
+theorem matchPat_conP_nullary_mismatch
+    (fuel : Nat) (env : Env) (c' c : Name) (st : TCState) (hne : c' ≠ c) :
+    runTypeCheck st (matchPat (fuel + 1) env (.ConP .Ind c' []) (.VCon .Ind c)) =
+      .ok (MatchResult.mismatch, st) := by
+  conv => lhs; unfold matchPat
+  simp only [pure_bind]
+  have hbeq : (c' == c) = false := beq_eq_false_iff_ne.mpr hne
+  rw [hbeq]
+  rfl
+
+/-- **Theorem 8j (Single-Clause Coverage Progress on Nullary Constructors)**:
+    If `clauseCoversCon c 0 (.mk [p] rhs) = true`, then `matchClause` on `[.VCon .Ind c]`
+    matches `p` and reduces directly to `whnf (fuel + 1) env' rhs`. -/
+theorem matchClause_clauseCoversCon_nullary
+    (fuel : Nat) (c : Name) (p : Pattern) (rhs : Expr) (st : TCState)
+    (hcov : clauseCoversCon c 0 (.mk [p] rhs) = true) :
+    ∃ env',
+      runTypeCheck st (matchClause (fuel + 3) [] [p] rhs [.VCon .Ind c]) =
+        (runTypeCheck st (whnf (fuel + 1) env' rhs)).map (fun (v, st1) => (MatchResult.matched v, st1)) := by
+  unfold clauseCoversCon at hcov
+  have ⟨env', hp⟩ := matchPat_patCoversCon_nullary fuel [] c p st hcov
+  refine ⟨env', ?_⟩
+  rw [matchClause_cons, hp]
+  dsimp
+  conv => lhs; unfold matchClause
+  dsimp
+  rw [runTypeCheck_bind]
+  cases runTypeCheck st (whnf (fuel + 1) env' rhs) with
+  | error err => rfl
+  | ok res =>
+    rcases res with ⟨v, st1⟩
+    change runTypeCheck st1 (do let v2 ← app (fuel + 1) v []; pure (MatchResult.matched v2)) = _
+    conv => lhs; unfold app
+    rfl
+
+/-- **Theorem 8k (Exhaustive Clause List Progress Theorem)**:
+    If a head clause `.mk [.ConP .Ind c1 []] rhs1` has `c1 ≠ c` and a subsequent clause
+    `.mk [p2] rhs2` covers `c` (`clauseCoversCon c 0 (.mk [p2] rhs2) = true`), then
+    `matchClauses` on `[.VCon .Ind c]` skips the non-matching head clause and reduces
+    to the covering clause's RHS `whnf (fuel + 1) env' rhs2`! -/
+theorem exhaustive_clauses_nullary_progress
+    (fuel : Nat) (c1 c : Name) (rhs1 : Expr) (p2 : Pattern) (rhs2 : Expr) (rest : List Clause)
+    (st : TCState) (hne : c1 ≠ c)
+    (hcov : clauseCoversCon c 0 (.mk [p2] rhs2) = true) :
+    ∃ env',
+      runTypeCheck st
+        (matchClauses (fuel + 5) (.mk [.ConP .Ind c1 []] rhs1 :: .mk [p2] rhs2 :: rest) [.VCon .Ind c]) =
+        (runTypeCheck st (whnf (fuel + 1) env' rhs2)).map (fun (v, st1) => (some v, st1)) := by
+  have hmis := matchPat_conP_nullary_mismatch (fuel + 2) [] c1 c st hne
+  rw [matchClauses_mismatch_advances (fuel + 3) (.ConP .Ind c1 []) [] rhs1 (.mk [p2] rhs2 :: rest) (.VCon .Ind c) [] st st hmis]
+  rw [matchClauses_cons]
+  have ⟨env', hcl2⟩ := matchClause_clauseCoversCon_nullary fuel c p2 rhs2 st hcov
+  refine ⟨env', ?_⟩
+  rw [hcl2]
+  cases runTypeCheck st (whnf (fuel + 1) env' rhs2) <;> rfl
+
+/-- **Theorem 8l (Fuel Invariance of `whnf` on Canonical Atomic & Value Expressions)**:
+    For every canonical/atomic expression (`.Set`, `.Size`, `.Infty`, `.Con`, `.Def`, `.Lam`, `.Var`),
+    `whnf (fuel + 1) env e` is completely independent of `fuel`. -/
+def isAtomicWhnfExpr : Expr → Bool
+  | .Set     => true
+  | .Size    => true
+  | .Infty   => true
+  | .Con _ _ => true
+  | .Def _   => true
+  | .Lam _ _ => true
+  | .Var _   => true
+  | _        => false
+
+theorem whnf_atomic_fuel_indep
+    (fuel1 fuel2 : Nat) (env : Env) (e : Expr) (st : TCState)
+    (hatom : isAtomicWhnfExpr e = true) :
+    runTypeCheck st (whnf (fuel1 + 1) env e) = runTypeCheck st (whnf (fuel2 + 1) env e) := by
+  cases e <;> try contradiction
+  all_goals rfl
+
+/-- **Theorem 8m (Universal Determinism of `whnf` and `matchClauses`)**:
+    Because `TypeCheck` is a pure state-exception monad `TCState → Except String (α × TCState)`,
+    evaluation and pattern matching are deterministic at every fuel bound. -/
+theorem whnf_deterministic
+    (fuel : Nat) (env : Env) (e : Expr) (st : TCState)
+    {r1 r2 : Except String (Val × TCState)}
+    (h1 : runTypeCheck st (whnf fuel env e) = r1)
+    (h2 : runTypeCheck st (whnf fuel env e) = r2) : r1 = r2 :=
+  h1.symm.trans h2
+
 /-! ## 3. Universal `nocc`, `substVal`, `checkNoccEnv` & `checkNoccDomains` Theorems (Pillar I & II) -/
 
 /-- **Theorem 9 (`nocc` on Generic Variables)**:
@@ -833,6 +999,93 @@ theorem leqVal'_vgen_iff (fuel : Nat) (f : ForceHist) (k k1 k2 : Nat) (st : TCSt
   dsimp
   cases (k1 == k2) <;> rfl
 
+/-- **Theorem 12j₂ (Universal Step Law of `eqVal'` on Successor Sizes `.VSucc`)**:
+    For any `u, v : Val` satisfying `(u != u) = false` and `(v != v) = false`,
+    `eqVal' (fuel + 2) f k (.VSucc u) (.VSucc v)` reduces directly to `eqVal' (fuel + 1) f k u v`. -/
+theorem eqVal'_vsucc_step
+    (fuel : Nat) (f : ForceHist) (k : Nat) (u v : Val) (st : TCState)
+    (hu : (u != u) = false) (hv : (v != v) = false) :
+    runTypeCheck st (eqVal' (fuel + 2) f k (.VSucc u) (.VSucc v)) =
+      runTypeCheck st (eqVal' (fuel + 1) f k u v) := by
+  conv => lhs; unfold eqVal'
+  simp only [force_vsucc, pure_bind, Val.bne_vsucc, hu, hv, Bool.false_and]
+  rfl
+
+/-- **Theorem 12j₃ (Universal Step Law of `leqVal'` on Successor Sizes `.VSucc`)**:
+    For any `u, v : Val` satisfying `(u != u) = false` and `(v != v) = false`,
+    `leqVal' (fuel + 2) f k (.VSucc u) (.VSucc v)` reduces directly to `leqVal' (fuel + 1) f k u v`. -/
+theorem leqVal'_vsucc_step
+    (fuel : Nat) (f : ForceHist) (k : Nat) (u v : Val) (st : TCState)
+    (hu : (u != u) = false) (hv : (v != v) = false) :
+    runTypeCheck st (leqVal' (fuel + 2) f k (.VSucc u) (.VSucc v)) =
+      runTypeCheck st (leqVal' (fuel + 1) f k u v) := by
+  conv => lhs; unfold leqVal'
+  simp only [force_vsucc, pure_bind, Val.bne_vsucc, hu, hv, Bool.false_and]
+  rfl
+
+theorem iterVSucc_vgen_bne_self (n i : Nat) :
+    (iterVSucc n (.VGen i) != iterVSucc n (.VGen i)) = false := by
+  induction n with
+  | zero => exact bne_self_eq_false i
+  | succ m ih =>
+    unfold iterVSucc
+    rw [Val.bne_vsucc]
+    exact ih
+
+/-- **Theorem 12j₄ (Universal Reflexivity of `eqVal'` on Arbitrary Successor Towers `$^n v`)**:
+    For every depth `n : Nat` and generic variable `.VGen i`, `eqVal'` is reflexive on `iterVSucc n (.VGen i)`. -/
+theorem eqVal'_iterVSucc_vgen_refl
+    (n fuel : Nat) (f : ForceHist) (k i : Nat) (st : TCState) :
+    runTypeCheck st (eqVal' (n + fuel + 2) f k (iterVSucc n (.VGen i)) (iterVSucc n (.VGen i))) =
+      .ok ((), st) := by
+  induction n with
+  | zero =>
+    unfold iterVSucc
+    rw [Nat.zero_add, eqVal'_vgen_iff, beq_self_eq_true]
+    rfl
+  | succ m ih =>
+    unfold iterVSucc
+    have h_add : (m + 1) + fuel + 2 = (m + fuel + 1) + 2 := by omega
+    rw [h_add]
+    have hb := iterVSucc_vgen_bne_self m i
+    rw [eqVal'_vsucc_step (m + fuel + 1) f k _ _ st hb hb]
+    exact ih
+
+/-- **Theorem 12j₅ (Universal Reflexivity of `leqVal'` on Arbitrary Successor Towers `$^n v`)**:
+    For every depth `n : Nat` and generic variable `.VGen i`, `leqVal'` is reflexive on `iterVSucc n (.VGen i)`. -/
+theorem leqVal'_iterVSucc_vgen_refl
+    (n fuel : Nat) (f : ForceHist) (k i : Nat) (st : TCState) :
+    runTypeCheck st (leqVal' (n + fuel + 2) f k (iterVSucc n (.VGen i)) (iterVSucc n (.VGen i))) =
+      .ok ((), st) := by
+  induction n with
+  | zero =>
+    unfold iterVSucc
+    rw [Nat.zero_add, leqVal'_vgen_iff, beq_self_eq_true]
+    rfl
+  | succ m ih =>
+    unfold iterVSucc
+    have h_add : (m + 1) + fuel + 2 = (m + fuel + 1) + 2 := by omega
+    rw [h_add]
+    have hb := iterVSucc_vgen_bne_self m i
+    rw [leqVal'_vsucc_step (m + fuel + 1) f k _ _ st hb hb]
+    exact ih
+
+/-- **Theorem 12j₆ (Universal Reflexivity of `eqVal'` on Constructors `.VCon`)**:
+    For every constructor `.VCon co c`, `eqVal' (fuel + 2) f k (.VCon co c) (.VCon co c)` succeeds. -/
+theorem eqVal'_vcon_refl (fuel : Nat) (f : ForceHist) (k : Nat) (co : Co) (c : Name) (st : TCState) :
+    runTypeCheck st (eqVal' (fuel + 2) f k (.VCon co c) (.VCon co c)) = .ok ((), st) := by
+  conv => lhs; unfold eqVal'
+  simp only [force_vcon, pure_bind, Val.bne_vcon, Val.beq_vcon, beq_self_eq_true]
+  cases co <;> rfl
+
+/-- **Theorem 12j₇ (Universal Reflexivity of `leqVal'` on Constructors `.VCon`)**:
+    For every constructor `.VCon co c`, `leqVal' (fuel + 2) f k (.VCon co c) (.VCon co c)` succeeds. -/
+theorem leqVal'_vcon_refl (fuel : Nat) (f : ForceHist) (k : Nat) (co : Co) (c : Name) (st : TCState) :
+    runTypeCheck st (leqVal' (fuel + 2) f k (.VCon co c) (.VCon co c)) = .ok ((), st) := by
+  conv => lhs; unfold leqVal'
+  simp only [force_vcon, pure_bind, Val.bne_vcon, Val.beq_vcon, beq_self_eq_true]
+  cases co <;> rfl
+
 /-- **Theorem 12k (Universal Variance Rule of `leqApp` on Sized Inductive vs. Coinductive Types)**:
     When `n` is a 0-parameter sized data declaration (`DataSig 0 [] .Sized co tv`) in `st.sig`,
     comparing `(.VDef n) [idx1]` against `(.VDef n) [idx2]` via `leqApp` reduces directly to:
@@ -1044,6 +1297,140 @@ theorem forM_checkNocc_of_mem
         rcases List.mem_cons.mp hj with rfl | hmem
         · exact ⟨st, st1, st2, hc1, h1⟩
         · exact ih st2 h j hmem
+
+/-- **Theorem 12p₂ (End-to-End Inversion of `checkPattern` on Constructor Patterns `.ConP`)**:
+    Whenever `checkPattern (fuel + 1) k flex ins rho gamma (.VPi x av env b) (.ConP co n pl)`
+    succeeds, `n` resolves to `.ConSig vc`, recursive subpattern checking `checkPatterns`,
+    unification `inst`, codomain evaluation `whnf`, and substitution composition `compSubst`
+    all succeed, and **every** newly successor-refined size variable
+    `j ∈ (flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst`
+    passes both `checkNoccEnv fuel k' j gamma` (so `nocc` holds on every `(y, ty) ∈ gamma`)
+    and `checkNoccDomains fuel k' j vb0`! -/
+theorem checkPattern_conP_inv
+    (fuel k : Nat) (flex : FlexEnv) (ins : Substitution) (rho gamma : Env)
+    (x : Name) (av : TVal) (env : Env) (b : Expr) (co : Co) (n : Name) (pl : List Pattern)
+    (res : Nat × FlexEnv × Substitution × Env × Env × TVal) (st stFinal : TCState)
+    (h : runTypeCheck st (checkPattern (fuel + 1) k flex ins rho gamma (.VPi x av env b) (.ConP co n pl)) =
+          .ok (res, stFinal)) :
+    ∃ vc k' flex' ins' rho' gamma' vc' sub vb0 ins'' st1 st2 st3 st4 st5 st6,
+      runTypeCheck st (lookupSig n) = .ok (.ConSig vc, st1) ∧
+      runTypeCheck st1 (checkPatterns fuel k flex ins rho gamma vc pl) =
+        .ok ((k', flex', ins', rho', gamma', vc'), st2) ∧
+      runTypeCheck st2 (inst fuel k' (flex'.map Prod.fst) vc' av) = .ok (sub, st3) ∧
+      runTypeCheck st3 (whnf fuel (updateEnv env x (patternToVal k (.ConP co n pl))) b) = .ok (vb0, st4) ∧
+      runTypeCheck st4 (compSubst fuel ins' sub) = .ok (ins'', st5) ∧
+      (∀ j ∈ (flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst,
+        (∀ p ∈ gamma, ∃ s1 s2, runTypeCheck s1 (nocc fuel k' (.VGen j) p.2) = .ok (true, s2)) ∧
+        ∃ s1 s2, runTypeCheck s1 (checkNoccDomains fuel k' j vb0) = .ok ((), s2)) ∧
+      runTypeCheck st5
+        (((flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst).forM fun j => do
+          checkNoccEnv fuel k' j gamma
+          checkNoccDomains fuel k' j vb0) = .ok ((), st6) := by
+  conv at h => lhs; unfold checkPattern
+  dsimp at h
+  rw [runTypeCheck_bind] at h
+  cases hls : runTypeCheck st (lookupSig n) with
+  | error err => rw [hls] at h; contradiction
+  | ok res0 =>
+    rcases res0 with ⟨d, st1⟩
+    rw [hls] at h
+    cases d with
+    | DataSig _ _ _ _ _ => dsimp at h; contradiction
+    | FunSig _ _ _ _ => dsimp at h; contradiction
+    | LetSig _ _ => dsimp at h; contradiction
+    | ConSig vc =>
+      dsimp at h
+      rw [runTypeCheck_bind] at h
+      cases hcp : runTypeCheck st1 (checkPatterns fuel k flex ins rho gamma vc pl) with
+      | error err => rw [hcp] at h; contradiction
+      | ok res1 =>
+        rcases res1 with ⟨⟨k', flex', ins', rho', gamma', vc'⟩, st2⟩
+        rw [hcp] at h
+        dsimp at h
+        rw [runTypeCheck_bind] at h
+        cases hinst : runTypeCheck st2 (inst fuel k' (flex'.map Prod.fst) vc' av) with
+        | error err => rw [hinst] at h; contradiction
+        | ok res2 =>
+          rcases res2 with ⟨sub, st3⟩
+          rw [hinst] at h
+          dsimp at h
+          rw [runTypeCheck_bind] at h
+          cases hvb0 : runTypeCheck st3 (whnf fuel (updateEnv env x (patternToVal k (.ConP co n pl))) b) with
+          | error err => rw [hvb0] at h; contradiction
+          | ok res3 =>
+            rcases res3 with ⟨vb0, st4⟩
+            rw [hvb0] at h
+            dsimp at h
+            rw [runTypeCheck_bind] at h
+            cases hcomp : runTypeCheck st4 (compSubst fuel ins' sub) with
+            | error err => rw [hcomp] at h; contradiction
+            | ok res4 =>
+              rcases res4 with ⟨ins'', st5⟩
+              rw [hcomp] at h
+              change runTypeCheck st5 (do
+                let newSuccVars := (flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst
+                newSuccVars.forM fun j => do
+                  checkNoccEnv fuel k' j gamma
+                  checkNoccDomains fuel k' j vb0
+                let vb ← substVal fuel ins'' vb0
+                let gamma'' ← substEnv fuel ins'' gamma'
+                pure (k', flex', ins'', rho', gamma'', vb)) = .ok (res, stFinal) at h
+              rw [runTypeCheck_bind] at h
+              cases hfor : runTypeCheck st5
+                (((flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst).forM fun j => do
+                  checkNoccEnv fuel k' j gamma
+                  checkNoccDomains fuel k' j vb0) with
+              | error err => rw [hfor] at h; contradiction
+              | ok res5 =>
+                rcases res5 with ⟨_, st6⟩
+                refine ⟨vc, k', flex', ins', rho', gamma', vc', sub, vb0, ins'',
+                        st1, st2, st3, st4, st5, st6, rfl, hcp, hinst, hvb0, hcomp, ?_, hfor⟩
+                intro j hj
+                have ⟨s0, s1, s2, henv, hdom⟩ :=
+                  forM_checkNocc_of_mem fuel k' gamma vb0
+                    ((flex'.filter fun (j, (_, tv)) => isNewSuccRefinement ins ins'' j tv).map Prod.fst)
+                    st5 st6 hfor j hj
+                refine ⟨?_, ⟨s1, s2, hdom⟩⟩
+                intro p hp
+                exact checkNoccEnv_forall_mem fuel k' j gamma s0 s1 henv p hp
+
+/-- **Theorem 12p₃ (Syntactic-to-Semantic Pattern Refinement Bridge: `Mugda.Core.checkPattern` → `MugdaSoundness`)**:
+    Bridges the executable `.ConP` pattern checker in `Mugda/Core.lean` directly to the
+    transfinite ordinal model `MugdaSoundness.multi_arg_pattern_refinement_sound` in `Mugda/Soundness.lean`:
+    whenever `checkPattern` accepts `.ConP co n pl` and the semantic context `Γ` and remaining
+    domain telescope `Δ` reflect the verified `checkNoccEnv` and `checkNoccDomains` checks on a
+    newly refined size variable `j`, refining `α ↦ $ β` in a covariant target `T` is sound at
+    every ordinal `α : MugdaSoundness.SizeOrd` (including limit ordinals `ω, ω + k`)! -/
+theorem syntactic_checkPattern_conP_sound_in_ordinal_model
+    (fuel k : Nat) (flex : FlexEnv) (ins : Substitution) (rho gamma : Env)
+    (x : Name) (av : TVal) (env : Env) (b : Expr) (co : Co) (n : Name) (pl : List Pattern)
+    (res : Nat × FlexEnv × Substitution × Env × Env × TVal) (st stFinal : TCState)
+    (h_check : runTypeCheck st (checkPattern (fuel + 1) k flex ins rho gamma (.VPi x av env b) (.ConP co n pl)) =
+               .ok (res, stFinal))
+    {Ctx Dom SemVal : Type}
+    {Γ : MugdaSoundness.SizeOrd → Ctx → Prop}
+    {Δ : MugdaSoundness.SizeOrd → Dom → Prop}
+    {T : MugdaSoundness.SizeOrd → SemVal → Prop}
+    (hΓ_sound : (∃ (k' : Nat) (vb0 : TVal) (st5 st6 : TCState) (vars : List Nat),
+      runTypeCheck st5 (vars.forM fun j => do
+        checkNoccEnv fuel k' j gamma
+        checkNoccDomains fuel k' j vb0) = .ok ((), st6)) →
+      MugdaSoundness.Independent Γ ∧ MugdaSoundness.Independent Δ)
+    (hMono : MugdaSoundness.Covariant T)
+    {body : MugdaSoundness.SizeOrd → Ctx → MugdaSoundness.OTerm → Dom → SemVal}
+    (hStep : ∀ (β : MugdaSoundness.SizeOrd) (c : Ctx) (t : MugdaSoundness.OTerm) (d : Dom),
+      Γ (MugdaSoundness.SizeOrd.succ β) c →
+      MugdaSoundness.InO β t →
+      Δ (MugdaSoundness.SizeOrd.succ β) d →
+      T (MugdaSoundness.SizeOrd.succ β) (body β c t d))
+    {α : MugdaSoundness.SizeOrd} {c : Ctx} {t : MugdaSoundness.OTerm} {d : Dom}
+    (hΓ : Γ α c) (ht : MugdaSoundness.InO α (.S t)) (hΔ : Δ α d) :
+    ∃ β < α, T α (body β c t d) := by
+  obtain ⟨_, k', flex', _, _, _, _, _, vb0, ins'', _, _, _, _, st5, st6, _, _, _, _, _, _, hfor⟩ :=
+    checkPattern_conP_inv fuel k flex ins rho gamma x av env b co n pl res st stFinal h_check
+  have ⟨hEnvNocc, hDomNocc⟩ := hΓ_sound ⟨k', vb0, st5, st6, _, hfor⟩
+  exact @MugdaSoundness.multi_arg_pattern_refinement_sound
+    Ctx Dom SemVal Γ Δ T hEnvNocc hDomNocc hMono body hStep α c t d hΓ ht hΔ
 
 /-! ### 3E. Universal Bidirectional Expression & Type Checking Theorems (`checkType`, `checkExpr`, `inferExpr`) -/
 

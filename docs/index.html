@@ -311,9 +311,12 @@
     </div>
     <nav class="nav-links">
       <a href="https://github.com/kmehltretter82/mugda" target="_blank">GitHub Repo</a>
-      <a href="https://github.com/kmehltretter82/mugda/blob/main/doc/da/da.pdf" target="_blank">Diploma Thesis (PDF)</a>
-      <a href="https://github.com/kmehltretter82/mugda/blob/main/BUG_REVIEW.md" target="_blank">Complete Bug Review</a>
-      <a href="https://github.com/kmehltretter82/mugda/blob/main/formalization/MugdaSoundness.lean" target="_blank">Lean 4 Soundness Proof</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/tutorial/README.md" target="_blank">Tutorial (9 Chapters)</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/examples/showcase/sizedlib/README.md" target="_blank">SizedLib Showcase</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/doc/mugda-revisited/mugda-revisited.pdf" target="_blank">Mugda Revisited (PDF)</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/doc/da/da.pdf" target="_blank">2007 Thesis (PDF)</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/BUG_REVIEW.md" target="_blank">Bug Review</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/Mugda/Metatheory.lean" target="_blank">Lean 4 Metatheory</a>
     </nav>
   </header>
 
@@ -492,26 +495,23 @@
       const byId = new Map();
 
       function populateDropdown() {
-        const posGroup = document.createElement('optgroup');
-        posGroup.label = 'Positive Examples (Valid Termination & Productivity)';
-        for (const item of window.MUGDA_EXAMPLES.positive) {
-          byId.set(item.id, item);
-          const opt = document.createElement('option');
-          opt.value = item.id;
-          opt.textContent = item.title;
-          posGroup.appendChild(opt);
-        }
-        const ceGroup = document.createElement('optgroup');
-        ceGroup.label = 'Counterexamples (Pass 2008 Engine, Caught by Bug-Fixed Engine)';
-        for (const item of window.MUGDA_EXAMPLES.counterexamples) {
-          byId.set(item.id, item);
-          const opt = document.createElement('option');
-          opt.value = item.id;
-          opt.textContent = item.title;
-          ceGroup.appendChild(opt);
-        }
-        select.appendChild(posGroup);
-        select.appendChild(ceGroup);
+        const addGroup = (label, items) => {
+          if (!items || items.length === 0) return;
+          const grp = document.createElement('optgroup');
+          grp.label = label;
+          for (const item of items) {
+            byId.set(item.id, item);
+            const opt = document.createElement('option');
+            opt.value = item.id;
+            opt.textContent = item.title;
+            grp.appendChild(opt);
+          }
+          select.appendChild(grp);
+        };
+        addGroup('Positive Examples (Thesis Benchmarks)', window.MUGDA_EXAMPLES.positive);
+        addGroup('Tutorial: Sized Types with Mugda (Ch 1–9)', window.MUGDA_EXAMPLES.tutorial);
+        addGroup('Showcase Projects (Verified Compiler & Bisimulation)', window.MUGDA_EXAMPLES.showcase);
+        addGroup('Counterexamples (Pass 2008 Engine, Caught by Bug-Fixed Engine)', window.MUGDA_EXAMPLES.counterexamples);
       }
 
       function renderCallMatrices(list) {
@@ -521,7 +521,16 @@
         }
         matrices.innerHTML = list.map(cm => {
           const rows = cm.matrix.map(r => r.join('  ')).join(' ; ');
-          return `<span class="matrix-chip"><strong>${cm.caller} &rarr; ${cm.callee}</strong>: ( ${rows} )</span>`;
+          const arrow = cm.isIdem ? '&rarr;*<sub>idem</sub>' : '&rarr;';
+          let badge = '';
+          if (cm.isIdem || cm.caller === cm.callee) {
+            if (typeof cm.decrIdx === 'number' && cm.decrIdx >= 0) {
+              badge = ` <span style="color: var(--green); font-weight: 700;">[&#10004; arg #${cm.decrIdx + 1}: &lt;]</span>`;
+            } else if (cm.isIdem) {
+              badge = ` <span style="color: var(--red); font-weight: 700;">[&#10008; no &lt; on diag]</span>`;
+            }
+          }
+          return `<span class="matrix-chip"><strong>${cm.caller} ${arrow} ${cm.callee}</strong>: ( ${rows} )${badge}</span>`;
         }).join('');
       }
 

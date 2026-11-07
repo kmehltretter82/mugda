@@ -31,7 +31,6 @@ NEG_EXAMPLES := \
 	examples/counterexamples/cody_nowraps.ma \
 	examples/counterexamples/cody_simplified.ma \
 	examples/counterexamples/llet_bug.ma \
-	examples/counterexamples/loop_deep.ma \
 	examples/counterexamples/loop_wrapped.ma \
 	examples/counterexamples/overlap_bug.ma \
 	examples/counterexamples/snat_mat_bug.ma \
@@ -66,15 +65,16 @@ test: build check-axioms
 		echo "[PASS-CHECK] $$f"; \
 		$(MUGDA) "$$f" > /dev/null || exit 1; \
 	done
-	@echo "=== Running 19 Negative Counterexamples (must be rejected) ==="
+	@echo "=== Running 18 Negative Counterexamples (must be rejected) ==="
 	@for f in $(NEG_EXAMPLES); do \
 		echo "[REJECT-CHECK] $$f"; \
+		if [ ! -f "$$f" ]; then echo "ERROR: $$f does not exist!"; exit 1; fi; \
 		if $(MUGDA) "$$f" > /dev/null 2>&1; then \
 			echo "ERROR: $$f was unexpectedly accepted!"; \
 			exit 1; \
 		fi; \
 	done
-	@echo "All 22 positive benchmarks and 19 negative counterexamples verified."
+	@echo "All 22 positive benchmarks and 18 negative counterexamples verified."
 	@$(MAKE) --no-print-directory check-showcase
 	@echo "=== Golden output snapshots (every examples/**/*.ma) ==="
 	@tests/golden.sh

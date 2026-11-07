@@ -25,13 +25,13 @@ flowchart TD
     W4 --> W2
 ```
 
-| Workstream | Priority | Target Files | Core Deliverable |
-|------------|----------|--------------|------------------|
-| **1. Deep Compositional Bridge Theorems** | **High** | [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean), [`Mugda/Soundness.lean`](Mugda/Soundness.lean) | Fuel monotonicity/determinism of `whnf`/`matchClauses`/`eqVal'`, full `eqVal'`/`leqVal'` equivalence/preorder laws, and end-to-end `checkPattern (.ConP ...)` $\to$ semantic `PatternRefinementInvariant` bridge. |
-| **2. Playground UI & Typeset Paper Sync** | **High** | [`docs/index.html`](docs/index.html), [`doc/mugda-revisited/mugda-revisited.tex`](doc/mugda-revisited/mugda-revisited.tex), [`mugda-revisited.pdf`](doc/mugda-revisited/mugda-revisited.pdf) | Add `overlap_bug.ma`, Tutorial chapters, and `SizedLib` to the live browser playground, add an `ORDER_+` Call-Matrix Inspector panel, and sync the typeset PDF paper with Bug 7 and the expanded metatheory. |
-| **3. Constructor Exhaustiveness / Coverage Check** | **Medium** | [`Mugda/Core.lean`](Mugda/Core.lean), [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean) | Non-breaking constructor coverage analysis (distinguishing impossible inductive indices like `Lt n zero` from missing constructors) + machine-checked progress theorem on closed `VCon` values. |
-| **4. Second Showcase: Bisimulation & Total Normalizer** | **Medium** | [`examples/showcase/`](examples/showcase/) | Coinductive stream bisimulation (`Bisim A s1 s2 i`) proving stream fusion/interleaving laws and a sized fuel-free evaluator/normalizer. |
-| **5. Editor Support (VS Code & GitHub Linguist)** | **Low** | `editors/vscode-mugda/`, `.gitattributes` | TextMate grammar (`mugda.tmLanguage.json`) and language configuration for `.ma` files locally and on GitHub. |
+| Workstream | Priority | Target Files | Core Deliverable | Status |
+|------------|----------|--------------|------------------|--------|
+| **1. Deep Compositional Bridge Theorems** | **High** | [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean), [`Mugda/Soundness.lean`](Mugda/Soundness.lean) | Fuel invariance/determinism (`whnf_atomic_fuel_indep`, `whnf_deterministic`), `$^n` tower reflexivity (`eqVal'_iterVSucc_vgen_refl`, `leqVal'_iterVSucc_vgen_refl`), and end-to-end `checkPattern (.ConP ...)` $\to$ semantic `multi_arg_pattern_refinement_sound` bridge (`checkPattern_conP_inv`, `syntactic_checkPattern_conP_sound_in_ordinal_model`). | **Completed & Verified** |
+| **2. Playground UI & Typeset Paper Sync** | **High** | [`docs/index.html`](docs/index.html), [`docs/examples-bundle.js`](docs/examples-bundle.js), [`doc/mugda-revisited/mugda-revisited.tex`](doc/mugda-revisited/mugda-revisited.tex), [`mugda-revisited.pdf`](doc/mugda-revisited/mugda-revisited.pdf) | Added `overlap_bug.ma`, Tutorial (Ch 1–9), and Showcases (`sizedlib.ma`, `bisim.ma`) to the live browser playground, upgraded the Call-Matrix Inspector with idempotent `M = M·M` diagonal witness badges, and recompiled `mugda-revisited.pdf`. | **Completed & Verified** |
+| **3. Constructor Exhaustiveness / Coverage Check** | **Medium** | [`Mugda/Core.lean`](Mugda/Core.lean), [`Mugda/Metatheory.lean`](Mugda/Metatheory.lean) | Decidable constructor coverage analysis (`checkConstructorCoverage`, `clausesCoverCon`, `patCoversCon`) + machine-checked progress theorems (`matchList_all_isShallowArgPat`, `matchClause_clauseCoversCon_nullary`, `exhaustive_clauses_nullary_progress`). | **Completed & Verified** |
+| **4. Second Showcase: Coinductive Bisimulation** | **Medium** | [`examples/showcase/bisim/`](examples/showcase/bisim/) | Coinductive stream bisimulation (`Bisim A i s1 s2`) proving `bisimRefl`/`bisimSymm`/`bisimTrans`, stream map-fusion, `interleave (evens s) (odds s) ~ s`, and prefix `Eq` extraction (`bisimTakeEq`). | **Completed & Verified** |
+| **5. Editor Support (VS Code & GitHub Linguist)** | **Low** | [`editors/vscode-mugda/`](editors/vscode-mugda/), [`.gitattributes`](.gitattributes) | TextMate grammar (`mugda.tmLanguage.json`), `language-configuration.json`, and GitHub Linguist mapping for `.ma` files. | **Completed & Verified** |
 
 ---
 

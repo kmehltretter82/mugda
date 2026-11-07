@@ -1,0 +1,8 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+fusionPrefixEq evaluates to (refl (List Nat) (cons Nat (succ zero) (cons Nat (succ (succ (succ zero))) (cons Nat (succ (succ (succ (succ (succ zero))))) (cons Nat (succ (succ (succ (succ (succ (succ (succ zero))))))) (nil Nat))))))
+interleavePrefixEq evaluates to (refl (List Nat) (cons Nat zero (cons Nat (succ zero) (cons Nat (succ (succ zero)) (cons Nat (succ (succ (succ zero))) (nil Nat))))))
+--- stderr ---
+--- exit: 0 ---

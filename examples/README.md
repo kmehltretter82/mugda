@@ -21,7 +21,7 @@ make test-js       # playground engine vs Lean checker (needs node)
 | Directory | Contents |
 |---|---|
 | [`tutorial/`](tutorial/) | Example files for the tutorial [*Sized Types with Mugda*](../tutorial/README.md). Each file starts with a `-- Expect: accept` or `-- Expect: reject (…)` header, which the golden runner enforces. |
-| [`showcase/`](showcase/) | The larger showcase project ([SizedLib + a verified compiler](showcase/sizedlib/README.md)). |
+| [`showcase/`](showcase/) | Two larger showcase projects: [Showcase 1: SizedLib + Verified Compiler](showcase/sizedlib/README.md) and [Showcase 2: Coinductive Stream Bisimulation & Fusion](showcase/bisim/README.md). |
 | [`counterexamples/`](counterexamples/) | Soundness counterexamples to Mugda 2008, all rejected by the fixed checker (see [BUG_REVIEW.md](../BUG_REVIEW.md)). |
 | [`adm/`](adm/) | Thesis-era experiments with size admissibility. |
 | `*.ma` (top level) | The original 2007/2008 examples from the thesis. Their paths are cited in the thesis, the paper and the Lean docstrings, so they stay where they are. |
@@ -94,7 +94,7 @@ These files type-check, but the checker flags some functions (named in brackets)
 | [`stream.ma`](stream.ma) | type: unsound size refinement at `head2` | A collection of sized-stream functions (`zeroes`, `map`, `zipWith`, `nth`, `fib`, `nats`, weakening). The final function, marked `-- bad`, is rejected, which stops the whole file. |
 | [`proc.ma`](proc.ma) | type: `eqVal error` at `lemma_ones` | The unsized version of `procs.ma`; the unsized `cofun ones` is not unfolded when comparing types. |
 | [`natstream.ma`](natstream.ma) | type: `eqVal error` at `proof` | An unsized coinductive equality proof about `nats`; not accepted. |
-| [`counterexamples/*.ma`](counterexamples/) | see [BUG_REVIEW.md](../BUG_REVIEW.md) | Eight soundness counterexamples to Mugda 2008 (`cody_nowraps.ma`, `cody_simplified.ma`, `llet_bug.ma`, `loop_deep.ma`, `loop_wrapped.ma`, `overlap_bug.ma`, `snat_mat_bug.ma`, `stree_mat_bug.ma`). All are rejected (`llet_bug.ma` by the termination check, `overlap_bug.ma` by 3-valued `matchPat`/`eqVal`, and the others by the pattern-refinement invariant). |
+| [`counterexamples/*.ma`](counterexamples/) | see [BUG_REVIEW.md](../BUG_REVIEW.md) | Seven soundness counterexamples to Mugda 2008 (`cody_nowraps.ma`, `cody_simplified.ma`, `llet_bug.ma`, `loop_wrapped.ma`, `overlap_bug.ma`, `snat_mat_bug.ma`, `stree_mat_bug.ma`). All are rejected (`llet_bug.ma` by the termination check, `overlap_bug.ma` by 3-valued `matchPat`/`eqVal`, and the others by the pattern-refinement invariant). |
 
 ### Legacy: stale syntax (rejected for reasons unrelated to their original point)
 

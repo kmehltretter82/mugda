@@ -730,7 +730,13 @@
     }
   }
 
+  function envEqualSyntactic(e1, e2) {
+    return e1.length === e2.length &&
+      e1.every((b, i) => b.name === e2[i].name && valEqualSyntactic(b.val, e2[i].val));
+  }
+
   function valEqualSyntactic(v1, v2) {
+    if (v1 === v2) return true;
     if (v1.tag !== v2.tag) return false;
     switch (v1.tag) {
       case 'VSet':
@@ -740,6 +746,7 @@
       case 'VGen':
         return v1.k === v2.k;
       case 'VCon':
+        return v1.co === v2.co && v1.name === v2.name;
       case 'VDef':
         return v1.name === v2.name;
       case 'VSucc':
@@ -748,6 +755,15 @@
         return valEqualSyntactic(v1.head, v2.head) &&
           v1.args.length === v2.args.length &&
           v1.args.every((a, i) => valEqualSyntactic(a, v2.args[i]));
+      case 'VPi':
+        return v1.name === v2.name &&
+          valEqualSyntactic(v1.dom, v2.dom) &&
+          envEqualSyntactic(v1.env, v2.env) &&
+          exprEqualSyntactic(v1.cod, v2.cod);
+      case 'VLam':
+        return v1.name === v2.name &&
+          envEqualSyntactic(v1.env, v2.env) &&
+          exprEqualSyntactic(v1.body, v2.body);
       default:
         return false;
     }
@@ -1180,6 +1196,7 @@
     }
 
     const failed = [];
+    const idempotentCalls = [];
     for (const f of funs) {
       const name = f.ts.name;
       let ok = true;
@@ -1188,7 +1205,10 @@
           const sq = multMat(c.m, c.m, mode);
           if (JSON.stringify(sq) === JSON.stringify(c.m)) {
             // Idempotent
-            if (!diag(c.m).some(isDecr)) {
+            const d = diag(c.m);
+            const decrIdx = d.findIndex(isDecr);
+            idempotentCalls.push({ caller: c.caller, callee: c.callee, m: c.m, decrIdx });
+            if (decrIdx === -1) {
               ok = false;
               break;
             }
@@ -1198,7 +1218,7 @@
       if (!ok) failed.push(name);
     }
 
-    return { ok: failed.length === 0, failed, initialCalls };
+    return { ok: failed.length === 0, failed, initialCalls, idempotentCalls };
   }
 
   // =========================================================================
@@ -1772,10 +1792,23 @@
         }
         const term = terminationCheck(d.funs, mode);
         for (const cm of term.initialCalls) {
+          const isSelf = cm.caller === cm.callee;
+          const decrIdx = isSelf ? diag(cm.m).findIndex(isDecr) : -1;
           callMatrices.push({
             caller: cm.caller,
             callee: cm.callee,
-            matrix: cm.m.map(r => r.map(showOrder))
+            matrix: cm.m.map(r => r.map(showOrder)),
+            isIdem: false,
+            decrIdx
+          });
+        }
+        for (const cm of (term.idempotentCalls || [])) {
+          callMatrices.push({
+            caller: cm.caller,
+            callee: cm.callee,
+            matrix: cm.m.map(r => r.map(showOrder)),
+            isIdem: true,
+            decrIdx: cm.decrIdx
           });
         }
         if (!term.ok) {

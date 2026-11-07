@@ -1,0 +1,88 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Mugda",
+  "scopeName": "source.mugda",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#sorts" },
+    { "include": "#operators" },
+    { "include": "#dotpatterns" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.mugda",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.mugda",
+          "begin": "\\{-",
+          "end": "-\\}"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.mugda",
+          "match": "\\b(sized|data|codata|fun|cofun|mutual|let|const|in|eval)\\b"
+        }
+      ]
+    },
+    "sorts": {
+      "patterns": [
+        {
+          "name": "storage.type.universe.mugda",
+          "match": "\\b(Set|Size)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.mugda",
+          "match": "->"
+        },
+        {
+          "name": "constant.language.size-infty.mugda",
+          "match": "#"
+        },
+        {
+          "name": "keyword.operator.size-succ.mugda",
+          "match": "\\$"
+        },
+        {
+          "name": "keyword.operator.lambda.mugda",
+          "match": "\\\\"
+        },
+        {
+          "name": "keyword.operator.polarity.mugda",
+          "match": "[+\\-=:;]"
+        }
+      ]
+    },
+    "dotpatterns": {
+      "patterns": [
+        {
+          "name": "meta.pattern.dot.mugda",
+          "match": "\\.[a-zA-Z0-9_']+|\\.\\("
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.mugda",
+          "match": "\\b[A-Z][a-zA-Z0-9_']*\\b"
+        },
+        {
+          "name": "variable.other.mugda",
+          "match": "\\b[a-z_][a-zA-Z0-9_']*\\b"
+        }
+      ]
+    }
+  }
+}

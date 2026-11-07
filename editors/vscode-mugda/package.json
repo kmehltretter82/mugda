@@ -1,0 +1,34 @@
+{
+  "name": "vscode-mugda",
+  "displayName": "Mugda Language Support",
+  "description": "Syntax highlighting and language configuration for Mugda (.ma) — Mini-Agda with Sized Types & Size-Change Termination",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mugda",
+        "aliases": [
+          "Mugda",
+          "mugda"
+        ],
+        "extensions": [
+          ".ma"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mugda",
+        "scopeName": "source.mugda",
+        "path": "./syntaxes/mugda.tmLanguage.json"
+      }
+    ]
+  }
+}

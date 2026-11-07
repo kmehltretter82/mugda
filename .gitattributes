@@ -1,0 +1,2 @@
+# Map Mugda (.ma) files to Agda syntax highlighting on GitHub Linguist
+*.ma linguist-language=Agda

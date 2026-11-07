@@ -58,10 +58,11 @@ and \emph{explicit $\mathsf{Size}$ indices} (\texttt{\$ i} for size successor an
 to check both \emph{termination} of inductive definitions (\texttt{fun}) and \emph{productivity} of corecursive definitions (\texttt{cofun}).
 
 Eighteen years later, we revisit Mugda through the lens of transfinite ordinal semantics and machine-checked formalization in \textbf{Lean~4}.
-First, we conduct a complete audit of the 2007/2008 system, identifying six soundness and completeness bugs in the interaction between dependent pattern unification, size subtyping, $\mathsf{ORDER}_+$ matrix comparison, and runtime size erasure.
+First, we conduct a complete audit of the 2007/2008 system, identifying seven soundness and completeness bugs in the interaction between dependent pattern unification, size subtyping, $\mathsf{ORDER}_+$ matrix comparison, runtime size erasure, and open evaluation of overlapping clauses.
 Second, we isolate why naive pattern unification on size indices fails at limit ordinals ($\omega, \omega + 2$): matching $x : \mathsf{D}\;\vec{u}\;\alpha$ against a constructor of target type $\mathsf{D}\;\vec{u}\;(\$ i)$ justifies only the \emph{existential ordinal inequality} $\exists \beta < \alpha,\; \$ \beta \le \alpha$, and \emph{not} the syntactic equality $\alpha = \$ \beta$.
 Third, we formulate and prove the \textbf{Pattern-Refinement Invariant} (\texttt{checkNoccEnv} + \texttt{checkNoccDomains} + parameter \texttt{nocc}), showing that substituting $\alpha \mapsto \$ \beta$ during pattern checking is sound across all transfinite ordinals if and only if the refined size variable occurs only in the covariant return type after matching.
-Finally, we port the entire Mugda compiler into the \emph{pure constructive subset of Lean~4} (\texttt{Mugda/Core.lean}, with zero \texttt{partial}, zero \texttt{unsafe}, and zero \texttt{sorry}) and verify over 30 semantic and in-place algorithmic metatheorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
+Fourth, we upgrade pattern-clause evaluation from 2-valued \texttt{Option Env} to 3-valued \texttt{MatchResult} (\texttt{matched} $\mid$ \texttt{mismatch} $\mid$ \texttt{stuck}), preventing neutral variables from falling through constructor clauses into catch-all clauses during dependent typechecking.
+Finally, we port the entire Mugda compiler into the \emph{pure constructive subset of Lean~4} (\texttt{Mugda/Core.lean}, with zero \texttt{partial}, zero \texttt{unsafe}, and zero \texttt{sorry}) and verify over 65 semantic and in-place algorithmic metatheorems covering every compiler pass in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
 \end{abstract}
 
 \section{Introduction}
@@ -151,8 +152,25 @@ Conversely, dropping any of (1), (2), or (3) admits a formal counterexample (\te
 
 \section{Algorithmic Verification in Constructive Lean 4}
 
+\subsection{3-Valued Clause Reduction on Open Terms (\texttt{MatchResult})}
+
+In the 2008 Haskell prototype (\texttt{Value.hs}), pattern matching \texttt{match : Pat -> Val -> Maybe Env} returned a 2-valued \texttt{Maybe Env}, conflating:
+\begin{enumerate}
+  \item a \textbf{definite constructor mismatch} (\texttt{zero} vs.\ \texttt{succ y}, where \texttt{matchClauses} should advance to the next clause), and
+  \item an \textbf{indeterminate match on a neutral variable} (\texttt{zero} vs.\ $\mathsf{VGen}\;k$, where reduction must block).
+\end{enumerate}
+On overlapping clauses such as \texttt{isz zero = tt; isz x = ff}, evaluating \texttt{isz n} on an open variable $n : \mathsf{Nat}$ fell through the first clause and reduced to \texttt{ff}, allowing \texttt{bad (n : Nat) : Eq Bool (isz n) ff = refl Bool ff} and \texttt{bad zero : Eq Bool tt ff} (\texttt{overlap\_bug.ma}).
+
+In \texttt{Mugda/Core.lean}, we replace \texttt{Option Env} in \texttt{matchPat}, \texttt{matchList}, and \texttt{matchClause} with the 3-valued inductive type:
+\[
+  \mathsf{MatchResult}\;\alpha \;::=\; \mathsf{matched}(v : \alpha) \;\mid\; \mathsf{mismatch} \;\mid\; \mathsf{stuck}.
+\]
+When a constructor pattern $\mathsf{ConP}$ or successor pattern $\mathsf{SuccP}$ inspects a distinct constructor ($c \neq c'$), it returns $\mathsf{mismatch}$ and \texttt{matchClauses} advances; when it inspects a neutral variable $\mathsf{VGen}\;k$, it returns $\mathsf{stuck}$ and \texttt{matchClauses} halts immediately (\textbf{Theorems \texttt{matchClauses\_stuck\_blocks\_fallthrough}, \texttt{matchClauses\_mismatch\_advances}, \texttt{matchClauses\_conP\_vgen\_never\_falls\_through}, and \texttt{exhaustive\_clauses\_nullary\_progress}}).
+
+\subsection{Comprehensive Pass Verification}
+
 The entire Mugda compiler is implemented in the pure constructive subset of Lean~4 in \texttt{Mugda/Core.lean} (zero \texttt{partial}, zero \texttt{unsafe}, zero \texttt{sorry}).
-Table~\ref{tab:theorems} summarizes the primary machine-checked metatheorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
+Table~\ref{tab:theorems} summarizes the machine-checked metatheorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
 
 \begin{table}[ht]
 \centering
@@ -175,8 +193,17 @@ Table~\ref{tab:theorems} summarizes the primary machine-checked metatheorems in 
 \texttt{Metatheory} & \texttt{inst\_iterVSucc\_infty} & Universal $\$^n$ tower stripping against \texttt{\#} \\
 \texttt{Metatheory} & \texttt{matchPat\_eraseSizes\_comm} & Universal size-erasure commutation for \texttt{matchPat} \\
 \texttt{Metatheory} & \texttt{succP\_breaks\_size\_erasure} & Tightness of Bug 5 (\texttt{cp (.SuccP \_) = false}) \\
+\texttt{Metatheory} & \texttt{matchClauses\_conP\_vgen\_never\_falls\_through} & 3-valued \texttt{MatchResult} neutral stuckness barrier \\
+\texttt{Metatheory} & \texttt{exhaustive\_clauses\_nullary\_progress} & Progress theorem for constructor-covering clauses \\
+\texttt{Metatheory} & \texttt{whnf\_atomic\_fuel\_indep}, \texttt{whnf\_deterministic} & Fuel invariance \& determinism of NbE evaluation \\
 \texttt{Metatheory} & \texttt{nocc\_substVal\_id\_of\_normSizeOrAtom} & Universal \texttt{nocc} $\implies$ \texttt{substVal} identity \\
 \texttt{Metatheory} & \texttt{checkNoccEnv\_forall\_mem}, \texttt{checkNoccDomains\_pi} & Universal soundness of \texttt{checkNocc*} \\
+\texttt{Metatheory} & \texttt{spos\_vpi\_inv}, \texttt{sposConstructor\_vpi\_inv} & Strict positivity inversion on constructor telescopes \\
+\texttt{Metatheory} & \texttt{eqVal'\_iterVSucc\_vgen\_refl}, \texttt{leqApp\_sized\_variance} & Tower reflexivity \& variance of \texttt{eqVal'}/\texttt{leqVal'} \\
+\texttt{Metatheory} & \texttt{szSizeVarTarget\_enforces\_rargs\_nocc} & Bug 2 parameter \texttt{nocc} enforcement in \texttt{cofun} targets \\
+\texttt{Metatheory} & \texttt{checkPattern\_conP\_inv}, \texttt{checkDot\_inv} & Full inversion of \texttt{checkPattern (.ConP)} \& \texttt{checkDot} \\
+\texttt{Metatheory} & \texttt{syntactic\_checkPattern\_conP\_sound\_in\_ordinal\_model} & Bridge: \texttt{Core.checkPattern} $\to$ \texttt{Soundness} ordinal model \\
+\texttt{Metatheory} & \texttt{checkType\_pi\_inv}, \texttt{checkExpr\_llet\_inv} & Bidirectional typing inversion for $\Pi$ and \texttt{let} \\
 \texttt{Metatheory} & \texttt{compScalar\_maxScalar\_distrib\_left/right} & Scalar $\mathsf{Order}$ Kleene-semiring laws \\
 \texttt{Metatheory} & \texttt{maxO\_mat\_never\_mat}, \texttt{collapseOrder\_never\_mat} & Bug 3b matrix collapse invariants \\
 \texttt{Metatheory} & \texttt{isDecr\_mat\_iff}, \texttt{checkAll\_sound} & Universal SCT diagonal witness characterization \\
@@ -187,6 +214,16 @@ Table~\ref{tab:theorems} summarizes the primary machine-checked metatheorems in 
 \caption{Summary of machine-checked theorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.}
 \label{tab:theorems}
 \end{table}
+
+\section{Case Studies: \texttt{SizedLib} Verified Compiler and Coinductive Bisimulation}
+
+To evaluate Mugda on larger developments beyond the 2007 thesis benchmarks, we developed a 9-chapter progressive tutorial (\texttt{tutorial/}, backed by 38 verified \texttt{.ma} files) and two larger verification case studies:
+\begin{enumerate}
+  \item \textbf{\texttt{SizedLib} + Verified Expression Compiler (\texttt{examples/showcase/sizedlib/sizedlib.ma}, $\sim$1,100 lines):}
+  Combines sized arithmetic (\texttt{sub}, \texttt{div}, \texttt{mod}, \texttt{gcd}), sized list sorting (\texttt{mergeSort}, \texttt{quickSort}), rose trees (\texttt{Rose}, \texttt{mapRose}, \texttt{foldRose}), coinductive streams (\texttt{fibs}, \texttt{hamming}), stream processors (\texttt{SP}), and a machine-checked stack-machine compiler and constant-folding optimizer for arithmetic expressions (\texttt{compile\_correct}, \texttt{compileOpt\_correct}).
+  \item \textbf{Coinductive Stream Bisimulation (\texttt{examples/showcase/bisim/bisim.ma}):}
+  Defines sized coinductive bisimulation $\mathsf{Bisim}\;A\;i\;s_1\;s_2$ ($s_1 \approx_i s_2$), proves by productive corecursion (\texttt{cofun}) that $\approx_\#$ is an equivalence relation (\texttt{bisimRefl}, \texttt{bisimSymm}, \texttt{bisimTrans}), verifies stream functor and map-fusion laws ($\mathsf{map}\;g\;(\mathsf{map}\;f\;s) \approx \mathsf{map}\;(g \circ f)\;s$ and $\mathsf{interleave}\;(\mathsf{evens}\;s)\;(\mathsf{odds}\;s) \approx s$), and proves by induction on $n : \mathsf{Nat}$ that bisimilar streams have propositionally equal $n$-th elements (\texttt{bisimNthEq}) and finite prefixes (\texttt{bisimTakeEq}).
+\end{enumerate}
 
 \begin{thebibliography}{9}
 \bibitem{mehltretter2007}
