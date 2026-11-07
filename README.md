@@ -56,10 +56,15 @@ make
 ./Main examples/counterexamples/llet_bug.ma
 ```
 
-### Verify the Lean 4 Soundness Proof & Constructive Core Port
+### Verify the Lean 4 Soundness Proof & Run the Constructive Lean 4 Mugda Compiler
 ```bash
 lean formalization/MugdaSoundness.lean
 lean formalization/MugdaCore.lean
+
+# Run the Constructive Lean 4 port directly on any .ma file:
+lean --run formalization/MugdaCore.lean examples/fib.ma
+lean --run formalization/MugdaCore.lean examples/sqsort.ma
+lean --run formalization/MugdaCore.lean examples/snat.ma
 ```
 
 ---

@@ -106,23 +106,15 @@ flowchart TD
 
 ---
 
-### Phase 1 (Stage I, Part 1): Completed Port of Core AST, Completeness, Value Domain, Strict Positivity, SCT Termination & TypeChecker ([`formalization/MugdaCore.lean`](formalization/MugdaCore.lean))
-Ported all 6 core Haskell compiler modules (~1,620 lines of Haskell) into 100% total, constructive Lean 4 in [`formalization/MugdaCore.lean`](formalization/MugdaCore.lean) (zero `partial`, zero `unsafe`, zero `sorry`):
+### Phase 1 & 2 (Stage I — Completed): Full Constructive Lean 4 Port of All 13 Mugda Modules ([`formalization/MugdaCore.lean`](formalization/MugdaCore.lean))
+Ported the entire Mugda compiler (~2,080 lines across all 13 active Haskell files) into 100% total, constructive Lean 4 in [`formalization/MugdaCore.lean`](formalization/MugdaCore.lean) (zero `partial`, zero `unsafe`, zero `sorry`):
 - [x] **`Abstract.hs` → `MugdaCore` (§1):** `Sized`, `Co`, `Pos`, `Expr`, `Pattern`, `Clause`, `TypeSig`, `Declaration`, `teleToType`, `splitTeleType`, `typeToTele`, `prettyExpr`.
 - [x] **`Completness.hs` → `MugdaCore` (§2):** `cp`, `completeClause`, `completePatterns`, plus theorem `cp_succP_false`.
 - [x] **`Value.hs` → `MugdaCore` (§3):** Strictly positive `Val` (`VSet`, `VSize`, `VInfty`, `VSucc`, `VApp`, `VCon`, `VDef`, `VGen`, `VPi`, `VLam`), `Signature`, pure `TypeCheck` monad, fuel-bounded total `whnf`, `app`, `force`, `matchPat`, `nocc`, plus theorem `sinfty_infty`.
 - [x] **`SPos.hs` → `MugdaCore` (§4):** `sposConstructor` (with binder depth `k`, Bug 6 fix), `spos`, `posArgs`.
-- [x] **`Termination.hs` → `MugdaCore` (§5):** `Order` (`Lt`, `Le`, `Un`, `Mat`), structurally recursive `collapseOrder` & `isDecr`, `maxO`, `minO`, `comp`, `compareExpr`, `collectCallsExpr` (with `LLet` fix, Bug 4), `completeCalls`, `terminationCheck`, plus theorem `maxO_never_mat`.
-- [x] **`TypeChecker.hs` → `MugdaCore` (§6):** `eqVal`, `leqVal`, `leqSize`, `inst`, `checkPattern` (with `checkNoccEnv` & `checkNoccDomains`, Bug 1 fix), `szCheckIndFun`, `szCheckCoFun`, `szUsed'` (with parameter `nocc`, Bug 2 fix), `checkExpr`, `inferExpr`, `typeCheckDecls`, `checkProgram`, plus `native_decide` theorems `snat_and_sub_accepted`, `snat_mat_bug_rejected`, `loop_wrapped_rejected`, `llet_bug_rejected`.
-
----
-
-### Phase 2 (Stage I, Part 2): Port `ScopeChecker.hs`, `Lexer.hs`, `Parser.hs` & CLI Runner
-Port the remaining front-end Haskell modules (~790 lines) to complete the standalone `.ma` parser and CLI:
-1. **`Concrete.hs` + `ScopeChecker.hs` → `Mugda/ScopeChecker.lean`:**
-   - Identifier resolution (`Var`, `Con`, `Def`, `Let`, `VarP`, `ConP`, `DotP`, `SuccP`), linearity of pattern variables, mutual block grouping.
-2. **`Tokens.hs` + `Lexer.hs` + `Parser.hs` + `Main.hs` → `Mugda/Frontend.lean`:**
-   - Full `.ma` file lexer/parser and `lake build` CLI binary matching `./Main` on all positive examples and counterexamples.
+- [x] **`Termination.hs` → `MugdaCore` (§5):** `Order` (`Lt`, `Le`, `Un`, `Mat`), structurally recursive `collapseOrder` & `isDecr`, `maxO`, `minO`, `comp`, `compareExpr`, `collectCallsExpr` (with `LLet` fix, Bug 4), `completeCalls`, `terminationCheck`, plus theorems `maxO_never_mat` and `collapseOrder_never_mat`.
+- [x] **`TypeChecker.hs` → `MugdaCore` (§6):** `eqVal`, `leqVal`, `leqSize`, `inst`, `checkPattern` (with `checkNoccEnv` & `checkNoccDomains`, Bug 1 fix), `szCheckIndFun`, `szCheckCoFun`, `szUsed'` (with parameter `nocc`, Bug 2 fix), `checkExpr`, `inferExpr`, `typeCheckDecls`, `checkProgram`, plus theorems `leqSize_infty`, `leqSize_gen_refl`, `leqSize_succ_gen`, `leqSize_succ_both`.
+- [x] **`Concrete.hs` + `ScopeChecker.hs` + `Tokens.hs` + `Lexer.hs` + `Parser.hs` + `Main.hs` → `MugdaCore` (§7):** Full `.ma` tokenizer (`tokenize`), recursive-descent parser (`parseTokens`), scope checker (`scopeCheck`), evaluator (`evalSource`), CLI entry point (`lean --run formalization/MugdaCore.lean <file.ma>`), and `native_decide` end-to-end theorems (`snat_and_sub_accepted`, `snat_mat_bug_rejected`, `loop_wrapped_rejected`, `llet_bug_rejected`, `snat_div_source_accepted`, `cody_nowraps_source_rejected`, `fib_source_evaluates_to_5`).
 
 ---
 
@@ -156,7 +148,7 @@ Prove directly on `MugdaCore.Termination`:
 |---|---|---|
 | **M0** | Ordinal semantics below $\omega \cdot 2$, Bug 1 refutation (`unguarded_deep_match_unsound`), single-match soundness (`fixed_pattern_refinement_sound`), well-founded recursion (`sized_recursion_terminates`) in [`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean) | **Done (Verified in Lean 4.35.0, 0 `sorry`)** |
 | **M1** | **Stage I (Part 1):** Constructive Lean 4 port of all 6 core modules (`Abstract.hs`, `Completness.hs`, `Value.hs`, `SPos.hs`, `Termination.hs`, `TypeChecker.hs`) + initial in-place theorems & `native_decide` suite in [`formalization/MugdaCore.lean`](formalization/MugdaCore.lean) | **Done (Verified in Lean 4.35.0, 0 `sorry`, 0 `partial`)** |
-| **M2** | **Stage I (Part 2):** Constructive Lean 4 port of `ScopeChecker.hs`, `Lexer.hs`, `Parser.hs`, and `.ma` CLI runner | Next (Phase 2) |
-| **M3** | **Stage II:** In-place verification of `checkPattern`, `szCheckIndFun`/`CoIndFun`, and tightness of Bugs 1 & 2 | Planned (Phase 3) |
+| **M2** | **Stage I (Part 2):** Constructive Lean 4 port of `Concrete.hs`, `ScopeChecker.hs`, `Tokens.hs`, `Lexer.hs`, `Parser.hs`, and `Main.hs` CLI runner (`lean --run formalization/MugdaCore.lean <file.ma>`) | **Done (Verified in Lean 4.35.0, 0 `sorry`, 0 `partial`)** |
+| **M3** | **Stage II:** In-place verification of `checkPattern`, `szCheckIndFun`/`CoIndFun`, and tightness of Bugs 1 & 2 | Next (Phase 3) |
 | **M4** | **Stage II:** In-place verification of `termCheck` (SCT matrix closure) and tightness of Bugs 3 & 4 | Planned (Phase 4) |
 | **M5** | **Stage II:** Size erasure bisimulation on `Value.eval` (Bug 5 tightness), Fundamental Theorem, and Positive Expressiveness Suite | Planned (Phase 5) |

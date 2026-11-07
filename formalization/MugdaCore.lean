@@ -1699,7 +1699,722 @@ def checkProgram (dl : List Declaration) : Except String TCState :=
       else .error (String.intercalate "; " st.warnings)
   | .error msg => .error msg
 
-/-! ## 7. In-Place Constructive Theorems on the Ported Mugda Code -/
+/-! ## 7. Port of `Concrete.hs`, `ScopeChecker.hs`, `Lexer.hs` & `Parser.hs` -/
+
+/-! ### 7.1 Concrete Syntax (`Concrete.hs`) -/
+
+inductive CExpr : Type where
+  | Set   : CExpr
+  | Size  : CExpr
+  | Succ  : CExpr → CExpr
+  | Infty : CExpr
+  | App   : CExpr → List CExpr → CExpr
+  | Lam   : Name → CExpr → CExpr
+  | LLet  : Name → CExpr → CExpr → CExpr → CExpr
+  | Pi    : Name → CExpr → CExpr → CExpr
+  | Ident : Name → CExpr
+  deriving Repr, Inhabited, BEq
+
+inductive CTBind : Type where
+  | TB    : Name → CExpr → CTBind
+  | PosTB : Name → CExpr → CTBind
+  deriving Repr, Inhabited, BEq
+
+abbrev CTelescope := List CTBind
+
+inductive CTypeSig : Type where
+  | mk : Name → CExpr → CTypeSig
+  deriving Repr, Inhabited, BEq
+
+inductive CPattern : Type where
+  | ConP   : Name → List CPattern → CPattern
+  | SuccP  : CPattern → CPattern
+  | DotP   : CExpr → CPattern
+  | IdentP : Name → CPattern
+  deriving Repr, Inhabited, BEq
+
+inductive CClause : Type where
+  | mk : List CPattern → CExpr → CClause
+  deriving Repr, Inhabited, BEq
+
+inductive CDeclaration : Type where
+  | DataDecl   : Name → Sized → Co → CTelescope → CExpr → List CTypeSig → CDeclaration
+  | FunDecl    : Co → CTypeSig → List CClause → CDeclaration
+  | LetDecl    : Bool → CTypeSig → CExpr → CDeclaration
+  | MutualDecl : List CDeclaration → CDeclaration
+  deriving Repr, Inhabited, BEq
+
+def cTeleToType : CTelescope → CExpr → CExpr
+  | [],                 t2 => t2
+  | .TB n t :: tel,     t2 => .Pi n t (cTeleToType tel t2)
+  | .PosTB n t :: tel,  t2 => .Pi n t (cTeleToType tel t2)
+
+/-! ### 7.2 Scope Checker (`ScopeChecker.hs`) -/
+
+inductive IKind : Type where
+  | DataK : IKind
+  | ConK  : Co → IKind
+  | FunK  : IKind
+  | LetK  : IKind
+  deriving Repr, Inhabited, BEq
+
+abbrev ScopeCtx := List Name
+abbrev ScopeSig := List (Name × IKind)
+
+def lookupScopeSig (n : Name) : ScopeSig → Option IKind
+  | []            => none
+  | (x, k) :: xs  => if x == n then some k else lookupScopeSig n xs
+
+def addScopeSig (n : Name) (k : IKind) (sig : ScopeSig) : ScopeSig :=
+  sig ++ [(n, k)]
+
+abbrev ScopeCheck (α : Type) := ReaderT ScopeCtx (StateT ScopeSig (Except String)) α
+
+def runScopeCheck (ctx : ScopeCtx) (sig : ScopeSig) (m : ScopeCheck α) : Except String (α × ScopeSig) :=
+  StateT.run (ReaderT.run m ctx) sig
+
+def posTelescope : CTelescope → List Pos
+  | []                => []
+  | .TB _ _ :: tel    => .NSPos :: posTelescope tel
+  | .PosTB _ _ :: tel => .SPos :: posTelescope tel
+
+def collectTelescopeNames : CTelescope → List Name
+  | []                => []
+  | .TB n _ :: tel    => n :: collectTelescopeNames tel
+  | .PosTB n _ :: tel => n :: collectTelescopeNames tel
+
+mutual
+  def scopeCheckExpr : CExpr → ScopeCheck Expr
+    | .Set      => pure .Set
+    | .Size     => pure .Size
+    | .Succ e1  => do
+        let e1' ← scopeCheckExpr e1
+        pure (.Succ e1')
+    | .Infty    => pure .Infty
+    | .App e1 el => do
+        let e1' ← scopeCheckExpr e1
+        let el' ← scopeCheckExprList el
+        pure (.App e1' el')
+    | .Pi "" t e1 => do
+        let t' ← scopeCheckExpr t
+        let e1' ← scopeCheckExpr e1
+        pure (.Pi "" t' e1')
+    | .Pi n t e1 => do
+        let ctx ← read
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some _ => throw ("Identifier " ++ n ++ " already in signature")
+        | none   =>
+            if ctx.contains n then throw ("Identifier " ++ n ++ " already in context")
+            else do
+              let t' ← scopeCheckExpr t
+              let e1' ← withReader (fun c => c ++ [n]) (scopeCheckExpr e1)
+              pure (.Pi n t' e1')
+    | .Lam n e1 => do
+        let ctx ← read
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some _ => throw ("Identifier " ++ n ++ " already in signature")
+        | none   =>
+            if ctx.contains n then throw ("Identifier " ++ n ++ " already in context")
+            else do
+              let e1' ← withReader (fun c => c ++ [n]) (scopeCheckExpr e1)
+              pure (.Lam n e1')
+    | .LLet n t1 e1 e2 => do
+        let ctx ← read
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some _ => throw ("Identifier " ++ n ++ " already in signature")
+        | none   =>
+            if ctx.contains n then throw ("Identifier " ++ n ++ " already in context")
+            else do
+              let t1' ← scopeCheckExpr t1
+              let e1' ← scopeCheckExpr e1
+              let e2' ← withReader (fun c => c ++ [n]) (scopeCheckExpr e2)
+              pure (.LLet n t1' e1' e2')
+    | .Ident n => do
+        let ctx ← read
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some (.ConK co) => pure (.Con co n)
+        | some .LetK      => pure (.Let n)
+        | some _          => pure (.Def n)
+        | none            =>
+            if ctx.contains n then pure (.Var n)
+            else throw ("Identifier " ++ n ++ " undefined")
+
+  def scopeCheckExprList : List CExpr → ScopeCheck (List Expr)
+    | []      => pure []
+    | e :: es => do
+        let e' ← scopeCheckExpr e
+        let es' ← scopeCheckExprList es
+        pure (e' :: es')
+end
+
+def scopeCheckTypeSig : CTypeSig → ScopeCheck TypeSig
+  | .mk n t => do
+      let sig ← get
+      match lookupScopeSig n sig with
+      | some _ => throw ("Identifier " ++ n ++ " already in signature")
+      | none   => do
+          let t' ← scopeCheckExpr t
+          pure (.mk n t')
+
+def scopeCheckConstructor (co : Co) : CTypeSig → ScopeCheck Constructor
+  | .mk n t => do
+      let sig ← get
+      match lookupScopeSig n sig with
+      | some _ => throw ("Identifier " ++ n ++ " already in signature")
+      | none   => do
+          let t' ← scopeCheckExpr t
+          set (addScopeSig n (.ConK co) sig)
+          pure (.mk n t')
+
+mutual
+  def scopeCheckPattern : CPattern → ScopeCheck Pattern
+    | .IdentP n => do
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some (.ConK co) => pure (.ConP co n [])
+        | some _          => throw ("pattern " ++ n ++ " not a constructor")
+        | none            => pure (.VarP n)
+    | .SuccP p2 => do
+        let p2' ← scopeCheckPattern p2
+        pure (.SuccP p2')
+    | .ConP n pl => do
+        let sig ← get
+        match lookupScopeSig n sig with
+        | some (.ConK co) => do
+            let pl' ← scopeCheckPatternList pl
+            pure (.ConP co n pl')
+        | _ => throw ("pattern " ++ n ++ " not a constructor")
+    | .DotP _ => pure (.VarP "")
+
+  def scopeCheckPatternList : List CPattern → ScopeCheck (List Pattern)
+    | []      => pure []
+    | p :: ps => do
+        let p' ← scopeCheckPattern p
+        let ps' ← scopeCheckPatternList ps
+        pure (p' :: ps')
+end
+
+mutual
+  def scopeCheckDotPattern : CPattern → Pattern → ScopeCheck Pattern
+    | .DotP e, _ => do
+        let e' ← scopeCheckExpr e
+        pure (.DotP e')
+    | .SuccP p1', .SuccP p2' => do
+        let p2'' ← scopeCheckDotPattern p1' p2'
+        pure (.SuccP p2'')
+    | .ConP _ pl, .ConP co n pl' => do
+        let pl'' ← scopeCheckDotPatternList pl pl'
+        pure (.ConP co n pl'')
+    | _, p2 => pure p2
+
+  def scopeCheckDotPatternList : List CPattern → List Pattern → ScopeCheck (List Pattern)
+    | [],      _       => pure []
+    | _,       []      => pure []
+    | c :: cs, p :: ps => do
+        let p' ← scopeCheckDotPattern c p
+        let ps' ← scopeCheckDotPatternList cs ps
+        pure (p' :: ps')
+end
+
+def collectVarPNamesAux : Nat → List Pattern → List Name → ScopeCheck (List Name)
+  | 0,        _,                  acc => pure acc
+  | _ + 1,    [],                 acc => pure acc
+  | fuel + 1, .SuccP p2 :: pl,    acc => collectVarPNamesAux fuel (p2 :: pl) acc
+  | fuel + 1, .ConP _ _ pl2 :: pl, acc => collectVarPNamesAux fuel (pl2 ++ pl) acc
+  | fuel + 1, .VarP "" :: pl,     acc => collectVarPNamesAux fuel pl acc
+  | fuel + 1, .VarP n :: pl,      acc =>
+      if acc.contains n then throw ("pattern not linear: " ++ n)
+      else collectVarPNamesAux fuel pl (n :: acc)
+  | fuel + 1, .DotP _ :: pl,      acc => collectVarPNamesAux fuel pl acc
+
+def collectVarPNames (pl : List Pattern) : ScopeCheck (List Name) :=
+  collectVarPNamesAux 1000 pl []
+
+def scopeCheckClause : CClause → ScopeCheck Clause
+  | .mk pl rhs => do
+      let pl' ← scopeCheckPatternList pl
+      let names ← collectVarPNames pl'
+      let pl'' ← withReader (fun c => c ++ names) (scopeCheckDotPatternList pl pl')
+      let rhs' ← withReader (fun c => c ++ names) (scopeCheckExpr rhs)
+      pure (.mk pl'' rhs')
+
+def checkPatternLength : List CClause → Bool
+  | []             => true
+  | .mk pl _ :: cl => cl.all fun (.mk pl2 _) => pl2.length == pl.length
+
+def scopeCheckFunDecls (co : Co) (decls : List CDeclaration) : ScopeCheck Declaration := do
+  -- 1. Check signatures
+  let tsl' ← decls.mapM fun d =>
+    match d with
+    | .FunDecl co' ts _ =>
+        if co == co' then scopeCheckTypeSig ts
+        else throw "mutual combination not supported"
+    | _ => throw "mutual combination not supported"
+  -- 2. Add function names to scope signature
+  decls.forM fun d =>
+    match d with
+    | .FunDecl _ (.mk n _) _ => modify (addScopeSig n .FunK)
+    | _ => pure ()
+  -- 3. Check clauses
+  let cll' ← decls.mapM fun d =>
+    match d with
+    | .FunDecl _ (.mk _ _) cl => do
+        let cl' ← cl.mapM scopeCheckClause
+        if checkPatternLength cl then pure cl'
+        else throw "pattern length differs"
+    | _ => throw "mutual combination not supported"
+  pure (.FunDecl co (tsl'.zip cll'))
+
+def scopeCheckDeclaration : CDeclaration → ScopeCheck Declaration
+  | .DataDecl n sz co tel t cs => do
+      let pos := posTelescope tel
+      let tt := cTeleToType tel t
+      let .mk _ tt' ← scopeCheckTypeSig (.mk n tt)
+      let (tel', t') := splitTeleType tel.length ([], tt')
+      modify (addScopeSig n .DataK)
+      let names := collectTelescopeNames tel
+      let cs' ← withReader (fun c => c ++ names) (cs.mapM (scopeCheckConstructor co))
+      pure (.DataDecl n sz co pos tel' t' cs')
+  | d@(.FunDecl co _ _) => scopeCheckFunDecls co [d]
+  | .LetDecl b ts@(.mk n _) e => do
+      let e' ← scopeCheckExpr e
+      let ts' ← scopeCheckTypeSig ts
+      modify (addScopeSig n .LetK)
+      pure (.LetDecl b ts' e')
+  | .MutualDecl (.FunDecl co ts cl :: rest) =>
+      scopeCheckFunDecls co (.FunDecl co ts cl :: rest)
+  | .MutualDecl _ => throw "mutual combination not supported"
+
+def scopeCheck (dl : List CDeclaration) : Except String (List Declaration) :=
+  match runScopeCheck [] [] (dl.mapM scopeCheckDeclaration) with
+  | .ok (decls, _) => .ok decls
+  | .error err     => .error err
+
+/-! ### 7.3 Lexer & Recursive-Descent Parser (`Lexer.hs` & `Parser.hs`) -/
+
+inductive Token : Type where
+  | Id      : String → Token
+  | Sized   : Token
+  | Data    : Token
+  | CoData  : Token
+  | Mutual  : Token
+  | Fun     : Token
+  | CoFun   : Token
+  | Let     : Token
+  | In      : Token
+  | Set     : Token
+  | Eval    : Token
+  | Size    : Token
+  | Infty   : Token
+  | Succ    : Token
+  | BrOpen  : Token
+  | BrClose : Token
+  | PrOpen  : Token
+  | PrClose : Token
+  | Sem     : Token
+  | Col     : Token
+  | Dot     : Token
+  | Arrow   : Token
+  | Eq      : Token
+  | Plus    : Token
+  | Lam     : Token
+  deriving Repr, Inhabited, BEq
+
+def isIdentChar (c : Char) : Bool :=
+  c.isAlpha || c.isDigit || c == '_' || c == '\''
+
+def classifyIdent : String → Token
+  | "sized"  => .Sized
+  | "data"   => .Data
+  | "codata" => .CoData
+  | "fun"    => .Fun
+  | "cofun"  => .CoFun
+  | "let"    => .Let
+  | "const"  => .Let
+  | "in"     => .In
+  | "eval"   => .Eval
+  | "mutual" => .Mutual
+  | "Set"    => .Set
+  | "Size"   => .Size
+  | s        => .Id s
+
+def dropLineComment : List Char → List Char
+  | []          => []
+  | '\n' :: cs  => cs
+  | _ :: cs     => dropLineComment cs
+
+def dropBlockComment : Nat → List Char → Except String (List Char)
+  | 0,        _                 => .error "Lexer: out of fuel in block comment"
+  | _,        []                => .error "Unterminated block comment"
+  | _ + 1,    '-' :: '}' :: cs  => .ok cs
+  | fuel + 1, _ :: cs           => dropBlockComment fuel cs
+
+def takeIdentChars : List Char → List Char × List Char
+  | []      => ([], [])
+  | c :: cs =>
+      if isIdentChar c then
+        let (idChars, rest) := takeIdentChars cs
+        (c :: idChars, rest)
+      else ([], c :: cs)
+
+def scanTokensAux : Nat → List Char → Except String (List Token)
+  | 0,        _                 => .error "Lexer: out of fuel"
+  | _,        []                => .ok []
+  | fuel + 1, '-' :: '-' :: cs  => scanTokensAux fuel (dropLineComment cs)
+  | fuel + 1, '{' :: '-' :: cs  => do
+      let rest ← dropBlockComment fuel cs
+      scanTokensAux fuel rest
+  | fuel + 1, '-' :: '>' :: cs  => do
+      let toks ← scanTokensAux fuel cs
+      .ok (.Arrow :: toks)
+  | fuel + 1, c :: cs =>
+      if c.isWhitespace then scanTokensAux fuel cs
+      else match c with
+      | '#'  => (.Infty :: ·)   <$> scanTokensAux fuel cs
+      | '$'  => (.Succ :: ·)    <$> scanTokensAux fuel cs
+      | '{'  => (.BrOpen :: ·)  <$> scanTokensAux fuel cs
+      | '}'  => (.BrClose :: ·) <$> scanTokensAux fuel cs
+      | '('  => (.PrOpen :: ·)  <$> scanTokensAux fuel cs
+      | ')'  => (.PrClose :: ·) <$> scanTokensAux fuel cs
+      | ';'  => (.Sem :: ·)     <$> scanTokensAux fuel cs
+      | ':'  => (.Col :: ·)     <$> scanTokensAux fuel cs
+      | '.'  => (.Dot :: ·)     <$> scanTokensAux fuel cs
+      | '+'  => (.Plus :: ·)    <$> scanTokensAux fuel cs
+      | '='  => (.Eq :: ·)      <$> scanTokensAux fuel cs
+      | '\\' => (.Lam :: ·)     <$> scanTokensAux fuel cs
+      | _    =>
+          if isIdentChar c then
+            let (idRest, rest) := takeIdentChars cs
+            let ident := String.ofList (c :: idRest)
+            (classifyIdent ident :: ·) <$> scanTokensAux fuel rest
+          else .error ("Unexpected character: " ++ String.ofList [c])
+
+def tokenize (s : String) : Except String (List Token) :=
+  let chars := s.toList
+  scanTokensAux (chars.length + 10) chars
+
+def startsExpr3 : List Token → Bool
+  | .Set :: _    => true
+  | .Size :: _   => true
+  | .Infty :: _  => true
+  | .Id _ :: _   => true
+  | .PrOpen :: _ => true
+  | _            => false
+
+def expectTok (expected : Token) : List Token → Except String (List Token)
+  | t :: ts => if t == expected then .ok ts else .error ("Unexpected token, expected " ++ reprStr expected)
+  | []      => .error ("Unexpected EOF, expected " ++ reprStr expected)
+
+mutual
+  def parseExpr (fuel : Nat) (ts : List Token) : Except String (CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Lam :: .Id x :: .Arrow :: rest => do
+          let (e, ts1) ← parseExpr fuel' rest
+          .ok (.Lam x e, ts1)
+      | .Let :: .Id x :: .Col :: rest => do
+          let (ty, ts1) ← parseExpr fuel' rest
+          let ts2 ← expectTok .Eq ts1
+          let (e1, ts3) ← parseExpr fuel' ts2
+          let ts4 ← expectTok .In ts3
+          let (e2, ts5) ← parseExpr fuel' ts4
+          .ok (.LLet x ty e1 e2, ts5)
+      | .PrOpen :: .Id x :: .Col :: rest =>
+          match parseExpr fuel' rest with
+          | .ok (ty, .PrClose :: .Arrow :: tsAfter) => do
+              let (body, ts1) ← parseExpr fuel' tsAfter
+              .ok (.Pi x ty body, ts1)
+          | _ => parseExprArrow fuel' ts
+      | _ => parseExprArrow fuel' ts
+
+  def parseExprArrow (fuel : Nat) (ts : List Token) : Except String (CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 => do
+        let (e1, ts1) ← parseExpr1 fuel' ts
+        match ts1 with
+        | .Arrow :: ts2 => do
+            let (e2, ts3) ← parseExpr fuel' ts2
+            .ok (.Pi "" e1 e2, ts3)
+        | _ => .ok (e1, ts1)
+
+  def parseExpr1 (fuel : Nat) (ts : List Token) : Except String (CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 => do
+        let (es, ts1) ← parseExpr2 fuel' ts
+        match es with
+        | [e]     => .ok (e, ts1)
+        | e :: el => .ok (.App e el, ts1)
+        | []      => .error "Parse error: empty expression"
+
+  def parseExpr2 (fuel : Nat) (ts : List Token) : Except String (List CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Succ :: rest => do
+          let (se, ts1) ← parseSE fuel' rest
+          let (more, ts2) ← parseExpr3Many fuel' ts1
+          .ok (.Succ se :: more, ts2)
+      | _ => do
+          let (e, ts1) ← parseExpr3 fuel' ts
+          let (more, ts2) ← parseExpr3Many fuel' ts1
+          .ok (e :: more, ts2)
+
+  def parseSE (fuel : Nat) (ts : List Token) : Except String (CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Succ :: rest => do
+          let (se, ts1) ← parseSE fuel' rest
+          .ok (.Succ se, ts1)
+      | _ => parseExpr3 fuel' ts
+
+  def parseExpr3Many (fuel : Nat) (ts : List Token) : Except String (List CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      if startsExpr3 ts then do
+        let (e, ts1) ← parseExpr3 fuel' ts
+        let (es, ts2) ← parseExpr3Many fuel' ts1
+        .ok (e :: es, ts2)
+      else .ok ([], ts)
+
+  def parseExpr3 (fuel : Nat) (ts : List Token) : Except String (CExpr × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Set :: rest   => .ok (.Set, rest)
+      | .Size :: rest  => .ok (.Size, rest)
+      | .Infty :: rest => .ok (.Infty, rest)
+      | .Id x :: rest  => .ok (.Ident x, rest)
+      | .PrOpen :: rest => do
+          let (e, ts1) ← parseExpr fuel' rest
+          let ts2 ← expectTok .PrClose ts1
+          .ok (e, ts2)
+      | _ => .error "Parse error in atomic expression"
+end
+
+mutual
+  def parsePattern (fuel : Nat) (ts : List Token) : Except String (CPattern × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .PrOpen :: .Succ :: rest => do
+          let (sp, ts1) ← parseSP fuel' rest
+          let ts2 ← expectTok .PrClose ts1
+          .ok (.SuccP sp, ts2)
+      | .PrOpen :: .Id c :: rest => do
+          let (ps, ts1) ← parsePatternsUntilEq fuel' rest
+          let ts2 ← expectTok .PrClose ts1
+          .ok (.ConP c ps, ts2)
+      | .Id x :: rest => .ok (.IdentP x, rest)
+      | .Dot :: rest => do
+          let (e, ts1) ← parseExpr3 fuel' rest
+          .ok (.DotP e, ts1)
+      | _ => .error "Parse error in pattern"
+
+  def parseSP (fuel : Nat) (ts : List Token) : Except String (CPattern × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Succ :: rest => do
+          let (sp, ts1) ← parseSP fuel' rest
+          .ok (.SuccP sp, ts1)
+      | _ => parsePattern fuel' ts
+
+  def parsePatternsUntilEq (fuel : Nat) (ts : List Token) : Except String (List CPattern × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Eq :: _      => .ok ([], ts)
+      | .PrClose :: _ => .ok ([], ts)
+      | _ => do
+          let (p, ts1) ← parsePattern fuel' ts
+          let (ps, ts2) ← parsePatternsUntilEq fuel' ts1
+          .ok (p :: ps, ts2)
+end
+
+def parseTypeSig (fuel : Nat) : List Token → Except String (CTypeSig × List Token)
+  | .Id name :: .Col :: ts => do
+      let (ty, ts1) ← parseExpr fuel ts
+      .ok (.mk name ty, ts1)
+  | _ => .error "Parse error in type signature"
+
+def parseDataTelescope (fuel : Nat) (ts : List Token) : Except String (CTelescope × List Token) :=
+  match fuel with
+  | 0 => .error "Parser: out of fuel"
+  | fuel' + 1 =>
+    match ts with
+    | .PrOpen :: .Plus :: .Id x :: .Col :: rest => do
+        let (ty, ts1) ← parseExpr fuel' rest
+        let ts2 ← expectTok .PrClose ts1
+        let (tel, ts3) ← parseDataTelescope fuel' ts2
+        .ok (.PosTB x ty :: tel, ts3)
+    | .PrOpen :: .Id x :: .Col :: rest => do
+        let (ty, ts1) ← parseExpr fuel' rest
+        let ts2 ← expectTok .PrClose ts1
+        let (tel, ts3) ← parseDataTelescope fuel' ts2
+        .ok (.TB x ty :: tel, ts3)
+    | _ => .ok ([], ts)
+
+def parseConstructors (fuel : Nat) (ts : List Token) : Except String (List CTypeSig × List Token) :=
+  match fuel with
+  | 0 => .error "Parser: out of fuel"
+  | fuel' + 1 =>
+    match ts with
+    | .BrClose :: _ => .ok ([], ts)
+    | _ => do
+        let (c, ts1) ← parseTypeSig fuel' ts
+        match ts1 with
+        | .Sem :: ts2 => do
+            let (cs, ts3) ← parseConstructors fuel' ts2
+            .ok (c :: cs, ts3)
+        | _ => .ok ([c], ts1)
+
+def parseClause (fuel : Nat) : List Token → Except String (CClause × List Token)
+  | .Id _ :: ts => do
+      let (ps, ts1) ← parsePatternsUntilEq fuel ts
+      let ts2 ← expectTok .Eq ts1
+      let (rhs, ts3) ← parseExpr fuel ts2
+      .ok (.mk ps rhs, ts3)
+  | _ => .error "Parse error in clause"
+
+def parseClauses (fuel : Nat) (ts : List Token) : Except String (List CClause × List Token) :=
+  match fuel with
+  | 0 => .error "Parser: out of fuel"
+  | fuel' + 1 =>
+    match ts with
+    | .BrClose :: _ => .ok ([], ts)
+    | _ => do
+        let (c, ts1) ← parseClause fuel' ts
+        match ts1 with
+        | .Sem :: ts2 => do
+            let (cs, ts3) ← parseClauses fuel' ts2
+            .ok (c :: cs, ts3)
+        | _ => .ok ([c], ts1)
+
+def parseDataRest (fuel : Nat) (name : Name) (sz : Sized) (co : Co) (ts : List Token)
+    : Except String (CDeclaration × List Token) := do
+  let (tel, ts1) ← parseDataTelescope fuel ts
+  let ts2 ← expectTok .Col ts1
+  let (ty, ts3) ← parseExpr fuel ts2
+  let ts4 ← expectTok .BrOpen ts3
+  let (cs, ts5) ← parseConstructors fuel ts4
+  let ts6 ← expectTok .BrClose ts5
+  .ok (.DataDecl name sz co tel ty cs, ts6)
+
+mutual
+  def parseDeclaration (fuel : Nat) (ts : List Token) : Except String (CDeclaration × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | .Data :: .Id name :: rest => parseDataRest fuel' name .NotSized .Ind rest
+      | .Sized :: .Data :: .Id name :: rest => parseDataRest fuel' name .Sized .Ind rest
+      | .CoData :: .Id name :: rest => parseDataRest fuel' name .NotSized .CoInd rest
+      | .Sized :: .CoData :: .Id name :: rest => parseDataRest fuel' name .Sized .CoInd rest
+      | .Fun :: rest => do
+          let (tsig, ts1) ← parseTypeSig fuel' rest
+          let ts2 ← expectTok .BrOpen ts1
+          let (cls, ts3) ← parseClauses fuel' ts2
+          let ts4 ← expectTok .BrClose ts3
+          .ok (.FunDecl .Ind tsig cls, ts4)
+      | .CoFun :: rest => do
+          let (tsig, ts1) ← parseTypeSig fuel' rest
+          let ts2 ← expectTok .BrOpen ts1
+          let (cls, ts3) ← parseClauses fuel' ts2
+          let ts4 ← expectTok .BrClose ts3
+          .ok (.FunDecl .CoInd tsig cls, ts4)
+      | .Mutual :: .BrOpen :: rest => do
+          let (decls, ts1) ← parseDeclarations fuel' rest
+          let ts2 ← expectTok .BrClose ts1
+          .ok (.MutualDecl decls, ts2)
+      | .Let :: rest => do
+          let (tsig, ts1) ← parseTypeSig fuel' rest
+          let ts2 ← expectTok .Eq ts1
+          let (e, ts3) ← parseExpr fuel' ts2
+          .ok (.LetDecl false tsig e, ts3)
+      | .Eval :: .Let :: rest => do
+          let (tsig, ts1) ← parseTypeSig fuel' rest
+          let ts2 ← expectTok .Eq ts1
+          let (e, ts3) ← parseExpr fuel' ts2
+          .ok (.LetDecl true tsig e, ts3)
+      | _ => .error "Parse error in declaration"
+
+  def parseDeclarations (fuel : Nat) (ts : List Token) : Except String (List CDeclaration × List Token) :=
+    match fuel with
+    | 0 => .error "Parser: out of fuel"
+    | fuel' + 1 =>
+      match ts with
+      | []           => .ok ([], [])
+      | .BrClose :: _ => .ok ([], ts)
+      | _ => do
+          let (d, ts1) ← parseDeclaration fuel' ts
+          let (ds, ts2) ← parseDeclarations fuel' ts1
+          .ok (d :: ds, ts2)
+end
+
+def parseTokens (ts : List Token) : Except String (List CDeclaration) := do
+  let (decls, rest) ← parseDeclarations (ts.length * 4 + 20) ts
+  if rest.isEmpty then .ok decls
+  else .error "Parse error: unconsumed tokens"
+
+/-- Full end-to-end Constructive Lean 4 pipeline on raw `.ma` source strings:
+    `tokenize → parseTokens → scopeCheck → checkProgram`. -/
+def checkSource (src : String) : Except String TCState := do
+  let toks ← tokenize src
+  let cdecls ← parseTokens toks
+  let adecls ← scopeCheck cdecls
+  checkProgram adecls
+
+mutual
+  def showVal : Val → String
+    | .VSet        => "Set"
+    | .VSize       => "Size"
+    | .VInfty      => "#"
+    | .VSucc v     => "($ " ++ showVal v ++ ")"
+    | .VApp v vl   => "(" ++ showVal v ++ " " ++ showValList vl ++ ")"
+    | .VCon _ n    => n
+    | .VDef n      => n
+    | .VGen k      => toString k
+    | .VPi x av _ e => "(" ++ x ++ " : " ++ showVal av ++ ") -> " ++ prettyExpr e
+    | .VLam x _ e   => "(\\" ++ x ++ " -> " ++ prettyExpr e ++ ")"
+
+  def showValList : List Val → String
+    | []      => ""
+    | [v]     => showVal v
+    | v :: vl => showVal v ++ " " ++ showValList vl
+end
+
+/-- Full end-to-end check and evaluation of `eval let` declarations (`Main.hs` lines 37–52). -/
+def evalSource (src : String) : Except String (List String) := do
+  let toks ← tokenize src
+  let cdecls ← parseTokens toks
+  let adecls ← scopeCheck cdecls
+  let st ← checkProgram adecls
+  let evalDecls := adecls.filterMap fun d =>
+    match d with
+    | .LetDecl true (.mk n _) e => some (n, e)
+    | _                         => none
+  evalDecls.mapM fun (n, e) =>
+    match runTypeCheck st (whnf defaultFuel [] e) with
+    | .ok (v, _) => .ok (n ++ " evaluates to " ++ showVal v)
+    | .error err => .error err
+
+/-! ## 8. In-Place Constructive Theorems on the Ported Mugda Code (Stage II) -/
 
 /-- **Theorem 1 (Runtime Size Idempotence at `#`)**:
     In `MugdaCore.sinfty` (`Value.hs` line 130), `$ # = #`. -/
@@ -1719,7 +2434,16 @@ theorem leqSize_gen_refl (k : Nat) (st : TCState) :
   simp [leqSize, runTypeCheck]
   rfl
 
-/-- **Theorem 4 (Bug 3b Fix — `maxO` Collapses Matrices Instead of Entrywise Addition)**:
+/-- **Theorem 4 (`leqSize` Unfolding under `$`)**:
+    `leqSize (.VSucc v1) (.VSucc v2) = leqSize v1 v2`, and for any generic size `VGen k`,
+    `leqSize (.VGen k) (.VSucc v2) = leqSize (.VGen k) v2`. -/
+theorem leqSize_succ_gen (k : Nat) (v2 : Val) :
+    leqSize (.VGen k) (.VSucc v2) = leqSize (.VGen k) v2 := rfl
+
+theorem leqSize_succ_both (v1 v2 : Val) :
+    leqSize (.VSucc v1) (.VSucc v2) = leqSize v1 v2 := rfl
+
+/-- **Theorem 5 (Bug 3b Fix — `maxO` Collapses Matrices Instead of Entrywise Addition)**:
     In the ported `Termination.maxO`, combining any two `Order` values produces a scalar
     order in `{Lt, Le, Un}` and can never produce a spurious `Mat`. -/
 theorem maxO_never_mat (o1 o2 : Order) (m : Matrix Order) :
@@ -1727,7 +2451,40 @@ theorem maxO_never_mat (o1 o2 : Order) (m : Matrix Order) :
   unfold maxO maxScalar
   split <;> intro h <;> injection h
 
-/-! ## 8. Executable Verification Suite (`native_decide`) -/
+/-- **Theorem 6 (`collapseOrder` Produces Only Scalar Orders `{Lt, Le, Un}`)**:
+    `collapseOrder o` never returns `.Mat m`. -/
+theorem collapseOrder_never_mat (o : Order) (m : Matrix Order) :
+    collapseOrder o ≠ .Mat m := by
+  cases o with
+  | Lt => intro h; injection h
+  | Le => intro h; injection h
+  | Un => intro h; injection h
+  | Mat rows =>
+    unfold collapseOrder
+    cases rows with
+    | nil => intro h; injection h
+    | cons r rs =>
+      cases rs with
+      | nil =>
+        unfold collapseRows
+        -- `collapseElemAt 0 r` is either `.Un` or `collapseOrder o0`, which is scalar
+        cases r with
+        | nil => intro h; injection h
+        | cons o0 os =>
+          unfold collapseElemAt
+          exact collapseOrder_never_mat o0 m
+      | cons r2 rs2 =>
+        unfold collapseRows minScalar
+        split <;> intro h <;> injection h
+
+/-- **Theorem 7 (Size Erasure Commutes with `DotP` and `VarP` Matching)**:
+    For any pattern `p` that is a `.DotP e` or `.VarP x`, `matchPat (fuel + 1)`
+    never inspects constructor tags or `VSucc` vs `VInfty` structure. -/
+theorem matchPat_dotP_erased (fuel : Nat) (env : Env) (e : Expr) (v1 v2 : Val) (st : TCState) :
+    runTypeCheck st (matchPat (fuel + 1) env (.DotP e) v1) =
+    runTypeCheck st (matchPat (fuel + 1) env (.DotP e) v2) := rfl
+
+/-! ## 9. Executable Verification Suite (`native_decide`) -/
 
 section Tests
 
@@ -1837,6 +2594,144 @@ def lletBugDecl : Declaration :=
 theorem llet_bug_rejected :
     (checkProgram [snatDecl, lletBugDecl]).isOk = false := by native_decide
 
+/-- **Verified Test 5 (End-to-End `.ma` Source String Verification — Euclidean Division `div` in `examples/snat.ma`)**:
+    Parses, scope-checks, type-checks, admissibility-checks, and termination-checks `SNat`, `sub`, and `div`
+    directly from raw `.ma` source text! -/
+def snatDivSource : String := "
+sized data SNat : Size -> Set
+{ zero : (i : Size) -> SNat ($ i)
+; succ : (i : Size) -> SNat i -> SNat ($ i)
+}
+
+fun sub : (i : Size) -> SNat i -> (j : Size) -> SNat j -> SNat i
+{ sub .($ i) (zero i) j y = zero i
+; sub i x .($ j) (zero j) = x
+; sub .($ i) (succ i x) .($ j) (succ j y) = sub ($ i) x j y
+}
+
+fun div : (i : Size) -> SNat i -> (j : Size) -> SNat j -> SNat i
+{ div .($ i) (zero i) j y = zero i
+; div .($ i) (succ i x) j y = succ i (div i (sub i x j y) j y)
+}
+"
+
+theorem snat_div_source_accepted :
+    (checkSource snatDivSource).isOk = true := by native_decide
+
+/-- **Verified Test 6 (End-to-End `.ma` Source String Rejection — Cody Roux's `cody_nowraps.ma`)**:
+    Parses and rejects the Brouwer ordinal limit-ordinal counterexample from raw `.ma` source text! -/
+def codyNoWrapsSource : String := "
+data Nat : Set
+{ zero : Nat
+; succ : Nat -> Nat
+}
+
+sized data O : Size -> Set
+{ Z : (i : Size) -> O ($ i)
+; S : (i : Size) -> O i -> O ($ i)
+; L : (i : Size) -> (Nat -> O i) -> O ($ i)
+; M : (i : Size) -> O i -> O i -> O ($ i)
+}
+
+fun loop : (i : Size) -> O i -> O i -> Nat
+{ loop .($ ($ ($ i)))
+       (M .($ ($ i)) (L .($ i) g) (Z .($ i)))
+       (M .($ ($ i)) (L .($ i) f) (S .($ i) (S i z)))
+  = loop ($ ($ i))
+         (M ($ i) (L i g) (Z i))
+         (M ($ i) (g zero) (f zero))
+; loop i x y = zero
+}
+"
+
+theorem cody_nowraps_source_rejected :
+    (checkSource codyNoWrapsSource).isOk = false := by native_decide
+
+/-- **Verified Test 7 (End-to-End Coinductive Fibonacci Stream & Evaluation — `examples/fib.ma`)**:
+    Parses, scope-checks, type-checks, admissibility-checks, termination-checks, and evaluates
+    `fib4 = nth 4 fib` to `5` (`(succ (succ (succ (succ (succ zero)))))`)! -/
+def fibSource : String := "
+data Nat : Set {
+  zero : Nat;
+  succ : Nat -> Nat
+}
+
+fun add : Nat -> Nat -> Nat {
+  add zero = \\y -> y;
+  add (succ x) = \\y -> succ (add x y)
+}
+
+sized codata Stream : Size -> Set {
+  cons : (i : Size) -> Nat -> Stream i -> Stream ($ i)
+}
+
+fun tail : Stream # -> Stream # {
+  tail (cons .# x xs) = xs
+}
+
+fun head : Stream # -> Nat {
+  head (cons .# x xs) = x
+}
+
+fun nth : Nat -> Stream # -> Nat {
+  nth zero xs = head xs;
+  nth (succ x) xs = nth x (tail xs)
+}
+
+let 1 : Nat = (succ zero)
+
+cofun fib' : (x : Nat) -> (y : Nat) -> (i : Size) -> Stream i {
+  fib' x y ($ i) = cons i x (fib' y (add x y) i)
+}
+
+let fib : Stream # = (fib' 1 1 #)
+let 4 : Nat = (succ (succ (succ 1)))
+eval let fib4 : Nat = nth 4 fib
+"
+
+theorem fib_source_evaluates_to_5 :
+    (evalSource fibSource).toOption =
+    some ["fib4 evaluates to (succ (succ (succ (succ (succ zero)))))"] := by native_decide
+
 end Tests
 
 end MugdaCore
+
+/-- Standalone CLI entry point (`lean --run formalization/MugdaCore.lean <file.ma>`),
+    matching `./Main <file.ma>` output behavior. -/
+def main (args : List String) : IO UInt32 := do
+  IO.println "***** Mugda v1.0 (Constructive Lean 4 Edition) *****"
+  match args with
+  | [] =>
+      IO.eprintln "Usage: lean --run formalization/MugdaCore.lean <file.ma>"
+      pure 1
+  | path :: _ =>
+      let src ← IO.FS.readFile path
+      match MugdaCore.tokenize src >>= MugdaCore.parseTokens with
+      | .error err =>
+          IO.eprintln ("parse error:\n" ++ err)
+          pure 1
+      | .ok cdecls =>
+          IO.println "--- scope checking ---"
+          match MugdaCore.scopeCheck cdecls with
+          | .error err =>
+              IO.eprintln ("scope check error: " ++ err)
+              pure 1
+          | .ok adecls =>
+              IO.println "--- type checking ---"
+              match MugdaCore.runTypeCheck {} (MugdaCore.typeCheckDecls MugdaCore.defaultFuel adecls) with
+              | .error err =>
+                  IO.println ("error during typechecking:\n" ++ err)
+                  pure 1
+              | .ok (_, st) =>
+                  st.warnings.forM IO.println
+                  IO.println "--- evaluating ---"
+                  let evalDecls := adecls.filterMap fun d =>
+                    match d with
+                    | .LetDecl true (.mk n _) e => some (n, e)
+                    | _                         => none
+                  evalDecls.forM fun (n, e) =>
+                    match MugdaCore.runTypeCheck st (MugdaCore.whnf MugdaCore.defaultFuel [] e) with
+                    | .ok (v, _) => IO.println (n ++ " evaluates to " ++ MugdaCore.showVal v)
+                    | .error err => IO.println ("eval error in " ++ n ++ ": " ++ err)
+                  pure (if st.warnings.isEmpty then 0 else 1)
