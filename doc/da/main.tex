@@ -1633,7 +1633,7 @@ We handle this kind of pattern by trying to convert the expression $e$ into a ``
 \cmp \: x \: p & = \cmpv \: x \:p  \\
 \cmp \: (x \: \vec{e}) \: p & = \cmpv \: x \:p  \\
 \cmp \: \cc   \: (\cc \: \diamond) & = \: \leq \\
-\cmp \: (\cc \: e_1 \ldots e_n) \: (\cc \: p_1 \ldots p_n) & = \info \: (\cmp \: e_1 \: p_n) \ldots (\cmp \: e_n \: p_n)\\
+\cmp \: (\cc \: e_1 \ldots e_n) \: (\cc \: p_1 \ldots p_n) & = \info \: (\cmp \: e_1 \: p_1) \ldots (\cmp \: e_n \: p_n)\\
 
 \cmp \: e \: p & = \: ? \mbox{ otherwise}
 \end{array}
@@ -1994,10 +1994,7 @@ The operations $*$, $+$ and $\wedge$ given in the previous section are extended 
 
 \[
 \begin{array}{llll}
-\alpha  & + &\beta & = \left\{ \begin{array}{ll}
-                          \gamma \mbox{ with } \gamma_{i,j} = \alpha_{i,j} \: + \: \beta_{i,j} & \mbox{ if } \vert \alpha \vert = \vert \beta \vert \\
-                          (\coll \alpha) + (\coll \beta) & \mbox{ otherwise}  
-                          \end{array}\right.\\ 
+\alpha  & + &\beta & = (\coll \alpha) + (\coll \beta) \\ 
 \alpha  & + & ?     & = \alpha \\
 \alpha  & + & \leq  & = (\coll \alpha) \: + \: \leq \\
 \alpha  & + & <     & = \: < \\
@@ -2043,9 +2040,9 @@ is changed to
 \begin{array}[t]{ll}
 \cmp \: (\cc \: e_1 \ldots e_n) \: (\cc \: p_1 \ldots p_n ) & = 
 \left\{\begin{array}{l} \gamma \in \opl^{n,n} \mbox{ with } \gamma_{i,j} = \cmp \: e_j \: p_i \\
-\: \mbox{ if } n \geq 2 \\
+\: \mbox{ if } n \geq 2 \mbox{ and } p_1 \ldots p_n \mbox{ contain no } \inacc{e} \mbox{ or } \s p \\
 \\
-\cmp \: e_1 \: p_1 \mbox { otherwise}
+\info \: (\cmp \: e_1 \: p_1) \ldots (\cmp \: e_n \: p_n) \mbox { otherwise}
 \end{array}
 \right.
 \end{array}
@@ -3064,8 +3061,9 @@ The formal judgment in figure \ref{admi} is defined on evaluated types, not expr
 {\LeqVal{k}{\nF}{v}{\subst{[\s i/i]}{v}}}
 {\mon{k}{v}{i}}
 \qquad
-\nru{}
+\ndru{}
 {\DD \mbox{ sized inductive data type}}
+{\nocc{k}{i}{p_j} \mbox{ for all } j \in \{1\ldots n\} \qquad \nocc{k}{i}{v_j} \mbox{ for all } j \in \{1\ldots m\}}
 {\indu{k}{\DD \: p_1 \ldots p_n \: i \: v_1 \ldots v_m}{i}}
 {\: \Sig \: \DD = (v_D,n)}
 \\[2ex]
@@ -3154,6 +3152,26 @@ For the rejected example $\lop$, $i$ is occurring in the argument type \[\Maybe 
 Both $\bad$ and $\badb$ are not admissible because their size patterns. 
 As can be seen, all examples given in sections 5.4 and 5.5 are admissible.
 
+\subsection{The Pattern-Refinement Invariant}
+
+In a dependently typed language with size subtyping ($\DD \: \vec{u} \: (\s s) \leq \DD \: \vec{u} \: t$ whenever $\s s \leq t$), matching a value $x : \DD \: \vec{u} \: j$ against a constructor pattern $\cc \: i \: \vec{p}$ with target type $\DD \: \vec{u} \: (\s i)$ only justifies the \emph{ordinal inequality}
+\[
+  \exists i < j, \quad \s i \leq j,
+\]
+and \textbf{not} the definitional equality $j = \s i$.
+In particular, if $j$ is instantiated to a limit ordinal $\lambda$ (such as $\omega$) or a successor of a limit ordinal $\omega + k$, two distinct subterms or arguments sharing the size upper bound $j$ need not share a common predecessor $i$ with $j = \s i$.
+
+Substituting $j \mapsto \s i$ during pattern checking in rule $\chkpcon$ (Figure~\ref{fphase1}) is therefore sound \emph{if and only if} the **Pattern-Refinement Invariant** holds:
+\begin{quote}
+\textbf{Pattern-Refinement Invariant.}
+Whenever unifying the constructor target $v'_c$ with the expected domain $v_A$ in rule $\chkpcon$ newly instantiates a flexible size variable $(j, (e, \Size)) \in \xi'$ to a successor value $\sigma''(j) = \s s$:
+\begin{enumerate}
+\item $\nocc{k'}{j}{v_T}$ for every earlier pattern binding $(y : v_T) \in \Gamma$ (no retroactive refinement of earlier pattern variables), and
+\item $\nocc{k'}{j}{v_D}$ for every remaining argument domain $v_D$ in the telescope of $v_B$ (no sibling or cross-argument size refinement).
+\end{enumerate}
+\end{quote}
+Under these two conditions, $j$ occurs after the current pattern only in the clause's return type $R(j)$, which by $\admIndType{1}{\wh \cl{A}{\diamond}}$ is \emph{monotone} (covariant) in $j$. Since any semantic witness $i < j$ satisfies $\s i \leq j$, monotonicity gives $R(\s i) \leq R(j)$, so checking the right-hand side against $R(\s i)$ soundly establishes $R(j)$ for all ordinal stages $j$ (including limit ordinals).
+
 \section{Admissible corecursive declarations}
 
 For corecursive functions, the type admissibility criterion is even more restricted.
@@ -3176,8 +3194,9 @@ We do not check the completeness of the size pattern for corecursive declaration
 
 \begin{figure}[htp]
 \begin{gather*}
-\nru{}
+\ndru{}
 {\DD \mbox{ sized codata}}
+{\nocc{k}{i}{p_j} \mbox{ for all } j \in \{1\ldots n\} \qquad \nocc{k}{i}{v_j} \mbox{ for all } j \in \{1\ldots m\}}
 {\coind{k}{\DD \: p_1 \ldots p_n \: i \: v_1 \ldots v_m}{i}}
 {\: \Sig \: \DD = (v_D,n)}
 \\[2ex]

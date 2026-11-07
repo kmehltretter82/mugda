@@ -12,7 +12,7 @@ add x (succ y) = succ (add y x)
 
 }
 
-data Ord : Size -> Set
+sized data Ord : Size -> Set
 {
 ozero : (i : Size ) -> Ord ($ i);
 olim :  (i : Size ) ->  ( Nat -> Ord i ) -> Ord ($ i) ; 

@@ -3,7 +3,42 @@ We think that the \mugda language demonstrates the usefulness of sized types.
 To that end, we have stretched Coquand's simple type-checking algorithm to a quite usable system.
 To our knowledge, $\mugda$ is the first system to combine the sized type approach with the size-change principle.
 
-Important for $\mugda$ as a prof system would be to add coverage checking of patterns, and to proof all those propositions that this thesis only tried to make look somewhat plausible. As inductive families seem to add quite a bit complexity, this is likely not easy.
+\section*{Expressiveness Evaluation}
+Table~\ref{tab:eval} summarizes the expressiveness trade-offs of $\mugda$'s combined termination and productivity discipline across five dimensions:
+\begin{enumerate}
+\item What ordinary single-argument structural recursion rejects;
+\item What the size-change principle (with call matrices and $\opl$) adds;
+\item What explicit $\Size$ indices and subtyping add beyond syntactic size-change;
+\item What the admissibility and pattern-refinement invariants rightly exclude; and
+\item What the annotation burden is for the user.
+\end{enumerate}
+
+\begin{table}[htp]
+\centering
+\footnotesize
+\begin{tabular}{|l|c|c|c|l|}
+\hline
+\textbf{Program / Benchmark} & \textbf{Struct.} & \textbf{SCT} & \textbf{SCT + $\Size$} & \textbf{Key Mechanism / Annotation Burden} \\
+\hline
+Permuted addition ($\addt$) & No & Yes & Yes & Off-diagonal call matrix (0 annotations) \\
+Mutual $\even$ / $\odd$, Ackermann & No & Yes & Yes & Call-graph completion (0 annotations) \\
+Brouwer ordinal $\addOrd$ (\texttt{ord.ma}) & No & Yes & Yes & Higher-order Axiom 2 ($f\,y \leq f$) \\
+Pair addition $\addp$ (\texttt{natpair.ma}) & No & Yes ($\opl$) & Yes & Nested constructor matrix $\opl$ \\
+Euclidean $\div$, $\mathsf{gcd}$ (\texttt{snat.ma}) & No & No & Yes & Upper-bound preservation $\minus : \SNat i \ra \dots \ra \SNat i$ \\
+Quicksort / Mergesort (\texttt{sqsort.ma}) & No & No & Yes & $\pivot / \mathsf{split}$ preserve size $i$; +1 $\Size$ arg \\
+Rose-tree $\flatt$ (\texttt{stree.ma}) & No & No & Yes & Higher-order $\mathsf{mapL}\:\infty\:(\flatt i)$ decreases $i$ \\
+Permuted HO $\addWith$ (\texttt{addWith.ma}) & No & No & Yes & Needs \emph{both} SCT permutation and $\Size$-preserving $f$ \\
+Stream $\fibs$, $\mathsf{zipWith}$ (\texttt{stream.ma}) & Guarded & No & Yes & Dual corecursion on $(\s i) \ra i$ \\
+Stream processor $\eat$ (\texttt{sp.ma}) & No & No & Yes & Unguarded CPS corecursion under $\ieat$ \\
+Haskell $\mathsf{fib} = 1:1:\mathsf{zipWith}\dots$ & No & No & Rejected & Requires $\tail : \SStream (\s i) \ra \SStream i$ (inadmissible) \\
+Deep sibling match (\texttt{cody\_simplified.ma}) & No & No & Rejected & Violates Pattern-Refinement Invariant at $\omega$ \\
+\hline
+\end{tabular}
+\caption{Systematic evaluation of $\mugda$'s expressiveness and termination discipline.}
+\label{tab:eval}
+\end{table}
+
+Important for $\mugda$ as a proof system would be to add coverage checking of patterns, and to prove all those propositions that this thesis only tried to make look somewhat plausible. As inductive families seem to add quite a bit complexity, this is likely not easy.
 
 Anyway, we hope this work also provides an easy access to both dependent types and the sized type approach. 
 The pattern matching notation used by \mugda should be a little bit more accessible than the fixed point operators used in a lot of previous presentations of sized types.

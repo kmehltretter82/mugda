@@ -38,10 +38,7 @@ maxO o1 o2 = case (o1,o2) of
                (Un,_) -> o2
                (_,Un) -> o1
                (Le,Le) -> Le
-               (Mat m1, Mat m2) -> if (ok m1 m2) then
-                                       Mat $ madd ordRing m1 m2
-                                   else
-                                       maxO (collapse m1) (collapse m2)
+               (Mat m1, Mat m2) -> maxO (collapse m1) (collapse m2)
                (Mat m1,_) -> maxO (collapse m1) o2
                (_,Mat m2) -> maxO o1 (collapse m2)
 
@@ -98,7 +95,8 @@ madd :: SemiRing a -> Matrix a -> Matrix a -> Matrix a
 madd sem m1 m2 = [ vadd sem x y | (x,y) <- zip m1 m2]
 
 transp :: Matrix a -> Matrix a 
-trans [] = []
+transp [] = []
+transp ([]:_) = []
 transp y = [[ z!!j | z<-y] | j<-[0..s]]
     where
     s = length (head y)-1
@@ -109,9 +107,10 @@ mmul sem m1 m2 = let m =
                  in m 
 diag :: Matrix a -> Vector a
 diag [] = []
+diag ([]:_) = []
 diag m = [ (m !! j) !! j | j <- [ 0..s] ] 
    where
-     s = length (head m) - 1
+     s = min (length m) (length (head m)) - 1
 
 elems :: Matrix a -> Vector a
 elems m = concat m
@@ -122,15 +121,16 @@ ok m1 m2 = (length m1) == length m2
 ---
 
 compareArgs :: [Pattern] -> [Expr] -> Int -> Matrix Order
-compareArgs _ [] _ = [[]]
 compareArgs [] _ _ = [[]]
+compareArgs pl [] ar_g =
+        if ar_g > 0 then replicate ar_g (replicate (length pl) Un) else [[]]
 compareArgs pl el ar_g = 
-        let 
-            diff = ar_g - length el 
+        let el' = if ar_g > 0 then take ar_g el else el
+            diff = ar_g - length el'
             fill = if diff > 0 then
                        replicate diff (replicate (length pl) Un)
                    else []
-            cmp = map (\ e -> (map (compareExpr e) pl)) el
+            cmp = map (\ e -> (map (compareExpr e) pl)) el'
         in
           cmp ++ fill
             
@@ -145,11 +145,33 @@ compareExpr e p =
       (App (Var i) _,p) -> compareVar i p 
       (Con _ n1,ConP _ n2 [])  | n1 == n2 -> Le
       (App (Con _ n1) [e1],ConP _ n2 [p1]) | n1 == n2 -> compareExpr e1 p1 
-      (App (Con _ n1) args,ConP _ n2 pl) | n1 == n2 && length args == length pl -> 
-              Mat (map (\ e -> (map (compareExpr e) pl)) args)
-              -- without extended order :  minL $ zipWith compareExpr args pl
+      (App (Con co n1) args,ConP _ n2 pl) | n1 == n2 && length args == length pl ->
+              if co == Ind && all isPurePat pl && all isPureExpr args then
+                Mat (map (\ e' -> (map (compareExpr e') pl)) args)
+              else
+                minL $ zipWith compareConArg args pl
       (Succ e2,SuccP p2) -> compareExpr e2 p2     
       _ -> Un
+
+-- Inside a sized or dependent constructor, dot patterns and size annotations
+-- cannot strictly decrease (Lt) on their own while data arguments grow.
+compareConArg :: Expr -> Pattern -> Order
+compareConArg e (DotP e') = if e == e' then Le else Un
+compareConArg (Succ _) _ = Un
+compareConArg Infty _ = Un
+compareConArg e p = compareExpr e p
+
+isPurePat :: Pattern -> Bool
+isPurePat (VarP _) = True
+isPurePat (ConP Ind _ pl) = all isPurePat pl
+isPurePat _ = False
+
+isPureExpr :: Expr -> Bool
+isPureExpr (Var _) = True
+isPureExpr (Con Ind _) = True
+isPureExpr (App (Con Ind _) el) = all isPureExpr el
+isPureExpr (App (Def _) el) = all isPureExpr el
+isPureExpr _ = False
 
 compareVar :: Name -> Pattern -> Order
 compareVar n p = 
@@ -186,19 +208,18 @@ exprsToPatterns (e:el) = case exprToPattern e of
 
 -------------------
 
-terminationCheck :: [(TypeSig,[Clause])] -> IO ()
+terminationCheck :: [(TypeSig,[Clause])] -> IO Bool
 terminationCheck funs =
        let tl = terminationCheckFuns funs
            nl = map fst tl
            bl = map snd tl
            nl2 = [ n | (n,b) <- tl , b == False ]
        in case (and bl) of
-            True -> case nl of
-                      [f] -> return ()
-                      _ -> return ()
-            False -> case nl of
-                    [f] -> putStrLn ("Termination check for function " ++ f ++ " fails ") 
-                    _   -> putStrLn ("Termination check for mutual block " ++ show nl ++ " fails for " ++ show nl2) 
+            True -> return True
+            False -> do case nl of
+                          [f] -> putStrLn ("Termination check for function " ++ f ++ " fails ") 
+                          _   -> putStrLn ("Termination check for mutual block " ++ show nl ++ " fails for " ++ show nl2)
+                        return False 
                                    
 
 terminationCheckFuns :: [ (TypeSig,[Clause]) ] -> [(Name,Bool)]
@@ -304,7 +325,8 @@ collectCallsExpr nl f pl e =
       (Def g) ->  collectCallsExpr nl f pl (App (Def g) []) 
       (App e args) -> concatMap (collectCallsExpr nl f pl) (e:args)
       (Lam _ e1) -> collectCallsExpr nl f pl e1
-      (LLet _ e1 t1 e2) ->  (collectCallsExpr nl f pl e1) ++ -- type won't get evaluated 
+      (LLet _ t1 e1 e2) ->  (collectCallsExpr nl f pl t1) ++
+                            (collectCallsExpr nl f pl e1) ++
                             (collectCallsExpr nl f pl e2) 
       (Pi _ e1 e2) -> (collectCallsExpr nl f pl e1) ++
                               (collectCallsExpr nl f pl e2)

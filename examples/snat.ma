@@ -53,9 +53,9 @@ let min4_2 : SNat # = minus #  four two
 -- not structurally recursive without sizes ... 
 fun div : ( i : Size )  ->  SNat i -> SNat # -> SNat i
 {
-div ($ .i) (zero i)   y            = zero i ;
-div ($ .i) (succ i x) (zero .#)    = zero i ;
-div ($ .i) (succ i x) (succ .# y)  = succ i (div i (minus i x y) (succ # y))
+div .($ i) (zero i)   y            = zero i ;
+div .($ i) (succ i x) (zero .#)    = zero i ;
+div .($ i) (succ i x) (succ .# y)  = succ i (div i (minus i x y) (succ # y))
 
 }
 

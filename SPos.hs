@@ -18,8 +18,8 @@ sposConstructor :: Name -> Int -> [Pos] -> TVal -> TypeCheck ()
 sposConstructor n k sp tv = 
     case tv of
          VPi x av env b -> do 
-              spr <- spos 0 (VDef n) av
-              spv <- sposVals (posGen 0 sp) av
+              spr <- spos k (VDef n) av
+              spv <- sposVals k (posGen 0 sp) av
               case (spr,spv) of
                 (True,True) -> do bv <- whnf (update env x (VGen k)) b
                                   sposConstructor n (k+1) sp bv
@@ -27,9 +27,9 @@ sposConstructor n k sp tv =
                 (True,False) -> throwErrorMsg "parameter not strictly positive"
          _ -> return ()
 
-sposVals :: [Val] -> TVal -> TypeCheck Bool
-sposVals vals tv = do sl <- mapM (\i -> spos 0 i tv) vals
-                      return $ and sl
+sposVals :: Int -> [Val] -> TVal -> TypeCheck Bool
+sposVals k vals tv = do sl <- mapM (\i -> spos k i tv) vals
+                        return $ and sl
 
 posGen :: Int -> [Pos] -> [Val]
 posGen i [] = []

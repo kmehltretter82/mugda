@@ -83,11 +83,13 @@ typeCheckConstructor d sz pos tel (TypeSig n t) =
 
 typeCheckFuns :: Co -> [(TypeSig,[Clause])] -> TypeCheck ()
 typeCheckFuns co funs = do mapM addFunSig funs
-                           mapM typeCheckFunSig funs
+                           adms <- mapM typeCheckFunSig funs
                            zipWithM typeCheckFunClause [1..] funs 
-                           liftIO $ terminationCheck funs  
-                           mapM enableSig funs      
-                           return ()
+                           termOk <- liftIO $ terminationCheck funs  
+                           case (and adms && termOk) of
+                             True -> do mapM enableSig funs
+                                        return ()
+                             False -> return ()
   where
     addFunSig :: (TypeSig,[Clause]) -> TypeCheck ()
     addFunSig (TypeSig n t,cl) = 
@@ -95,7 +97,7 @@ typeCheckFuns co funs = do mapM addFunSig funs
           sig <- get 
           vt <- whnf [] t
           put (addSig sig n (FunSig co vt cl False)) --not yet type checked / termination checked
-    typeCheckFunSig :: (TypeSig,[Clause]) -> TypeCheck () 
+    typeCheckFunSig :: (TypeSig,[Clause]) -> TypeCheck Bool
     typeCheckFunSig (TypeSig n t,cl) =   
        (
         do checkT t
@@ -104,7 +106,7 @@ typeCheckFuns co funs = do mapM addFunSig funs
                     Ind -> szCheckIndFun 0 vt
                     CoInd -> szCheckCoFun 0 vt
            b <- case co of
-                  Ind -> return $ completeFun cl
+                  Ind -> return $ completePatterns cl
                   CoInd -> return True
            case adm of
              False -> do 
@@ -114,6 +116,7 @@ typeCheckFuns co funs = do mapM addFunSig funs
              False -> do 
                liftIO $ putStrLn $ n ++ " : size pattern incomplete"  
              True -> return ()
+           return (adm && b)
        ) `throwTrace` ("type of " ++ n)
     typeCheckFunClause :: Int -> (TypeSig,[Clause]) -> TypeCheck ()
     typeCheckFunClause k (TypeSig n t,cl) =
@@ -288,7 +291,7 @@ leqApp f k v1 w1 v2 w2 =  --trace ("leqApp " ++ show v1 ++ show w1 ++ "<=" ++ sh
                                                  let indices2 = drop (p + 1) w2
                                                  eqVals' f k (nparams1 ++ indices1) (nparams2 ++ indices2) 
                                                  -- now one index (that may be a size) remains to be checked
-                                                 case (length w2 > p && length w2 > p) of
+                                                 case (length w1 > p && length w2 > p) of
                                                    True ->
                                                        case s of
                                                          Sized -> -- sized data type 
@@ -298,13 +301,13 @@ leqApp f k v1 w1 v2 w2 =  --trace ("leqApp " ++ show v1 ++ show w1 ++ "<=" ++ sh
                                                                 CoInd ->
                                                                     leqSize (w2 !! p) (w1 !! p)
                                                          NotSized -> 
-                                                                    eqVal k (w1 !! p) (w2 !!p)
+                                                                    eqVal' f k (w1 !! p) (w2 !!p)
                                                    False -> return ()
-                                         _ -> do leqVal k v1 v2 
-                                                 eqVals k w1 w2
+                                         _ -> do leqVal' f k v1 v2 
+                                                 eqVals' f k w1 w2
                                                 
-        _ -> do leqVal k v1 v2 
-                eqVals k w1 w2
+        _ -> do leqVal' f k v1 v2 
+                eqVals' f k w1 w2
 
 
 
@@ -463,6 +466,17 @@ checkPattern k flex ins rho gamma v p = -- trace ("cp " ++ show k ++ " " ++ show
                  let pv = patternToVal k p
                  vb <- whnf (update env x pv) b
                  ins'' <- compSubst ins' subst
+                 -- Pattern-refinement invariant for sized types:
+                 -- When a constructor pattern refines a flexible size variable j to a
+                 -- successor size ($ s), that refinement is only justified as a witness bound
+                 -- for the current inductive spine (and monotone return type), not to downcast
+                 -- earlier pattern variables in gamma or remaining argument domains in vb.
+                 let newSuccSizeVars =
+                       [ j | (j, (_, VSize)) <- flex'
+                           , lookup j ins == Nothing
+                           , case lookup j ins'' of { Just (VSucc _) -> True; _ -> False } ]
+                 mapM_ (\j -> do checkNoccEnv k' j gamma
+                                 checkNoccDomains k' j vb) newSuccSizeVars
                  vb <- substVal ins'' vb
                  gamma' <- substEnv ins'' gamma'
                  return (k',flex',ins'',rho',gamma',vb)
@@ -527,10 +541,30 @@ checkRHS k rho gamma rhs v =  --trace ("checking rhs") $
 
   
 
+-- Verify that a flexible size variable j refined to a successor ($ s) does not
+-- retroactively refine earlier bindings in gamma or remaining argument domains.
+checkNoccEnv :: Int -> Int -> Env -> TypeCheck ()
+checkNoccEnv k j [] = return ()
+checkNoccEnv k j ((_,tv):env) = do
+  b <- nocc k (VGen j) tv
+  case b of
+    True -> checkNoccEnv k j env
+    False -> throwErrorMsg "unsound size refinement in pattern: size variable occurs in another pattern variable's type"
+
+checkNoccDomains :: Int -> Int -> TVal -> TypeCheck ()
+checkNoccDomains k j (VPi x av env b) = do
+  ok <- nocc k (VGen j) av
+  case ok of
+    False -> throwErrorMsg "unsound size refinement in pattern: size variable shared across multiple arguments or branches"
+    True -> do bv <- whnf (update env x (VGen k)) b
+               checkNoccDomains (k+1) j bv
+checkNoccDomains _ _ _ = return ()
+
 -- match v1 against v2 by unification , yielding a substition
 inst :: Int -> [Int] -> Val -> Val -> TypeCheck Substitution
 inst m flex v1 v2 =  do
   case (v1,v2) of
+    (VGen k1,VGen k2) | k1 == k2 -> return []
     (VGen k,_) | elem k flex -> do
                        noc <- nocc m v1 v2 
                        case noc of 
@@ -541,12 +575,12 @@ inst m flex v1 v2 =  do
                    case noc of 
                          True -> return [(k,v1)]
                          False -> throwErrorMsg "occurs check failed"
+    (VSucc v1',VSucc v2') -> inst m flex v1' v2'
+    (VSucc v, VInfty) -> inst m flex v VInfty
     (VApp (VDef d1) vl1,VApp (VDef d2) vl2) | d1 == d2 -> 
                    instList m flex vl1 vl2
     (VApp (VCon _ c1) vl1,VApp (VCon _ c2) vl2) | c1 == c2 -> 
             instList m flex vl1 vl2
-    (VSucc v1',VSucc v2') -> inst m flex v1' v2'
-    (VSucc v, VInfty) -> inst m flex v VInfty
     _ -> do eqVal m v1 v2
             return []
    
@@ -557,6 +591,7 @@ instList m flex (v1:vl1) (v2:vl2) = do map <- inst m flex v1 v2
                                        vl2' <- mapM (substVal map) vl2
                                        map' <- instList m flex vl1' vl2'
                                        compSubst map map'
+instList _ _ _ _ = throwErrorMsg "instList: length mismatch"
 
 -- substitute generic variable in value
 substVal :: Substitution -> TVal -> TypeCheck Val
@@ -568,7 +603,7 @@ substVal map v =
                   Just v' -> return v'
       VApp v1 vl -> do v1' <- substVal map v1
                        vl' <- mapM (substVal map) vl
-                       return $ VApp v1' vl'
+                       app v1' vl'
       VSucc v1 -> do v1' <- substVal map v1
                      return $ sinfty v1'
       VPi x av env b -> do av' <- substVal map av
@@ -643,7 +678,10 @@ szSizeVarTarget k p i tv = case tv of
                              (VApp d vl) -> do
                                      let v0 = (vl !! p)
                                      case v0 of
-                                       (VSucc (VGen i')) | i == i' -> return True
+                                       (VSucc (VGen i')) | i == i' -> do
+                                           let rargs = take p vl ++ drop (p+1) vl
+                                           bl <- mapM (nocc k (VGen i)) rargs
+                                           return $ and bl
                                        _ -> return False
                              _ -> return False 
 
@@ -715,10 +753,10 @@ szCheckIndFunSize k i tv = do
             let k' = k + 1 
             ind <- szInductive k i av
             case ind of
-              True -> szCheckIndFunSize k i bv
+              True -> szCheckIndFunSize k' i bv
               False -> do noc <- nocc k (VGen i) av
                           case noc of
-                            True -> szCheckIndFunSize k i bv
+                            True -> szCheckIndFunSize k' i bv
                             False -> return False
        _ -> szMonotone k i tv
                                                      
@@ -794,7 +832,10 @@ szUsed' co k i tv =
                   DataSig p _ Sized co' _ | co == co' && length vl > p -> 
                       do let s = vl !! p
                          case s of
-                           VGen i' | i == i' -> return True
+                           VGen i' | i == i' -> do
+                               let rargs = take p vl ++ drop (p+1) vl
+                               bl <- mapM (nocc k (VGen i)) rargs
+                               return $ and bl
                            _ -> return False 
                   _ -> return False
          _ -> return False
