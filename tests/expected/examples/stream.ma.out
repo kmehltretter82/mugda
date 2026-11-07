@@ -1,0 +1,7 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+error during typechecking:
+head2: unsound size refinement in pattern: size variable shared across multiple arguments or branches
+--- stderr ---
+--- exit: 1 ---

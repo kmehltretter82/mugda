@@ -1,0 +1,11 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+five evaluates to (succ (succ (succ (succ (succ zero)))))
+ack22 evaluates to (succ (succ (succ (succ (succ (succ (succ zero)))))))
+ack11 evaluates to (succ (succ (succ zero)))
+odd3 evaluates to tt
+flat1 evaluates to (ncons (succ zero) (ncons (succ (succ zero)) (ncons (succ (succ (succ zero))) nnil)))
+--- stderr ---
+--- exit: 0 ---

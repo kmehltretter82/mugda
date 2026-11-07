@@ -31,7 +31,9 @@ NEG_EXAMPLES := \
 	examples/counterexamples/cody_nowraps.ma \
 	examples/counterexamples/cody_simplified.ma \
 	examples/counterexamples/llet_bug.ma \
+	examples/counterexamples/loop_deep.ma \
 	examples/counterexamples/loop_wrapped.ma \
+	examples/counterexamples/overlap_bug.ma \
 	examples/counterexamples/snat_mat_bug.ma \
 	examples/counterexamples/stree_mat_bug.ma \
 	examples/loop.ma \
@@ -46,7 +48,7 @@ NEG_EXAMPLES := \
 	examples/badco.ma \
 	examples/badlist.ma
 
-.PHONY: all build test check-axioms clean
+.PHONY: all build test check-axioms golden golden-update test-js showcase check-showcase clean
 
 all: build
 
@@ -64,7 +66,7 @@ test: build check-axioms
 		echo "[PASS-CHECK] $$f"; \
 		$(MUGDA) "$$f" > /dev/null || exit 1; \
 	done
-	@echo "=== Running 17 Negative Counterexamples (must be rejected) ==="
+	@echo "=== Running 19 Negative Counterexamples (must be rejected) ==="
 	@for f in $(NEG_EXAMPLES); do \
 		echo "[REJECT-CHECK] $$f"; \
 		if $(MUGDA) "$$f" > /dev/null 2>&1; then \
@@ -72,7 +74,39 @@ test: build check-axioms
 			exit 1; \
 		fi; \
 	done
-	@echo "All 22 positive benchmarks and 17 negative counterexamples verified."
+	@echo "All 22 positive benchmarks and 19 negative counterexamples verified."
+	@$(MAKE) --no-print-directory check-showcase
+	@echo "=== Golden output snapshots (every examples/**/*.ma) ==="
+	@tests/golden.sh
+
+# Golden-output regression: compare stdout/stderr/exit code of every example
+# against tests/expected/. After an intended change, run `make golden-update`
+# and review the diff.
+golden: build
+	@tests/golden.sh
+
+golden-update: build
+	@tests/golden.sh --update
+
+# Differential test: browser playground engine (docs/mugda-engine.js) vs Lean checker.
+test-js: build
+	@node tests/js-vs-lean.mjs
+
+# The showcase project is written as several parts (Mugda has no imports) and
+# concatenated into one checkable program.
+SHOWCASE_DIR := examples/showcase/sizedlib
+showcase:
+	@if [ -d $(SHOWCASE_DIR)/src ]; then \
+		cat $(SHOWCASE_DIR)/src/*.ma > $(SHOWCASE_DIR)/sizedlib.ma; \
+		echo "wrote $(SHOWCASE_DIR)/sizedlib.ma"; \
+	fi
+
+check-showcase:
+	@if [ -d $(SHOWCASE_DIR)/src ]; then \
+		cat $(SHOWCASE_DIR)/src/*.ma | cmp -s - $(SHOWCASE_DIR)/sizedlib.ma || \
+		{ echo "ERROR: $(SHOWCASE_DIR)/sizedlib.ma is out of date; run 'make showcase'"; exit 1; }; \
+		echo "Showcase sizedlib.ma is up to date with src/."; \
+	fi
 
 clean:
 	$(LAKE) clean

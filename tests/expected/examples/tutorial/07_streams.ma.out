@@ -1,0 +1,14 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+natsValue evaluates to (from zero #)
+natsPrefix evaluates to (cons Nat zero (cons Nat (succ zero) (cons Nat (succ (succ zero)) (cons Nat (succ (succ (succ zero))) (nil Nat)))))
+evens evaluates to (cons Nat zero (cons Nat (succ (succ zero)) (cons Nat (succ (succ (succ (succ zero)))) (cons Nat (succ (succ (succ (succ (succ (succ zero)))))) (nil Nat)))))
+fibPrefix evaluates to (cons Nat (succ zero) (cons Nat (succ zero) (cons Nat (succ (succ zero)) (cons Nat (succ (succ (succ zero))) (cons Nat (succ (succ (succ (succ (succ zero))))) (nil Nat))))))
+fib4 evaluates to (succ (succ (succ (succ (succ zero)))))
+pairs evaluates to (cons Nat zero (cons Nat zero (cons Nat (succ zero) (cons Nat (succ zero) (cons Nat (succ (succ zero)) (nil Nat))))))
+clock evaluates to (cons Bool tt (cons Bool ff (cons Bool tt (nil Bool))))
+mapped evaluates to (cons Nat (succ zero) (cons Nat (succ zero) (cons Nat (succ zero) (nil Nat))))
+--- stderr ---
+--- exit: 0 ---

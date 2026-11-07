@@ -1,0 +1,36 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+digits_len evaluates to (dec d0 d8)
+div_7_2 evaluates to (dec d0 d3)
+div_18_7 evaluates to (dec d0 d2)
+gcd_12_18 evaluates to (dec d0 d6)
+ack_2_3 evaluates to (dec d0 d9)
+qs_digits evaluates to (cons Dec (dec d0 d1) (cons Dec (dec d0 d1) (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d4) (cons Dec (dec d0 d5) (cons Dec (dec d0 d6) (cons Dec (dec d0 d9) (nil Dec)))))))))
+ms_digits evaluates to (cons Dec (dec d0 d1) (cons Dec (dec d0 d1) (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d4) (cons Dec (dec d0 d5) (cons Dec (dec d0 d6) (cons Dec (dec d0 d9) (nil Dec)))))))))
+tree_flat evaluates to (cons Dec (dec d0 d1) (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d4) (cons Dec (dec d0 d5) (cons Dec (dec d0 d6) (nil Dec)))))))
+tree_size evaluates to (dec d0 d6)
+tree_doubled evaluates to (cons Dec (dec d0 d2) (cons Dec (dec d0 d4) (cons Dec (dec d0 d6) (cons Dec (dec d0 d8) (cons Dec (dec d1 d0) (cons Dec (dec d1 d2) (nil Dec)))))))
+collapse_w_plus_w_3 evaluates to (dec d0 d6)
+collapse_w_times_3_2 evaluates to (dec d0 d6)
+collapse_3_times_w_2 evaluates to (dec d0 d6)
+fib_first8 evaluates to (cons Dec (dec d0 d0) (cons Dec (dec d0 d1) (cons Dec (dec d0 d1) (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d5) (cons Dec (dec d0 d8) (cons Dec (dec d1 d3) (nil Dec)))))))))
+fib_8 evaluates to (dec d2 d1)
+mult23_first8 evaluates to (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d4) (cons Dec (dec d0 d6) (cons Dec (dec d0 d8) (cons Dec (dec d0 d9) (cons Dec (dec d1 d0) (cons Dec (dec d1 d2) (nil Dec)))))))))
+fib_plus_nats evaluates to (cons Dec (dec d0 d0) (cons Dec (dec d0 d2) (cons Dec (dec d0 d3) (cons Dec (dec d0 d5) (cons Dec (dec d0 d7) (nil Dec))))))
+interleaved evaluates to (cons Dec (dec d0 d0) (cons Dec (dec d0 d1) (cons Dec (dec d0 d0) (cons Dec (dec d0 d1) (cons Dec (dec d0 d0) (cons Dec (dec d0 d1) (nil Dec)))))))
+evens_nats evaluates to (cons Dec (dec d0 d0) (cons Dec (dec d0 d2) (cons Dec (dec d0 d4) (cons Dec (dec d0 d6) (cons Dec (dec d0 d8) (nil Dec))))))
+sp_pairsums evaluates to (cons Dec (dec d0 d1) (cons Dec (dec d0 d5) (cons Dec (dec d0 d9) (cons Dec (dec d1 d3) (nil Dec)))))
+sp_runsum evaluates to (cons Dec (dec d0 d1) (cons Dec (dec d0 d3) (cons Dec (dec d0 d6) (cons Dec (dec d1 d0) (cons Dec (dec d1 d5) (nil Dec))))))
+sp_adder evaluates to (cons Dec (dec d0 d4) (cons Dec (dec d0 d4) (cons Dec (dec d0 d4) (nil Dec))))
+prefix_eq evaluates to (refl (List Nat) (cons Nat zero (cons Nat (succ zero) (cons Nat (succ (succ zero)) (nil Nat)))))
+prog_value evaluates to (dec d2 d0)
+prog_code evaluates to (cons Instr (ipush (succ (succ zero))) (cons Instr (ipush (succ (succ (succ zero)))) (cons Instr iadd (cons Instr (ipush (succ zero)) (cons Instr (ipush zero) (cons Instr imul (cons Instr (ibranch (cons Instr (ipush (succ (succ (succ (succ zero))))) (nil Instr)) (cons Instr (ipush (succ (succ (succ (succ (succ (succ (succ (succ (succ zero)))))))))) (nil Instr))) (cons Instr imul (nil Instr)))))))))
+prog_run evaluates to (cons Dec (dec d2 d0) (nil Dec))
+prog_folded evaluates to (lit (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ zero)))))))))))))))))))))
+prog_opt_code evaluates to (cons Instr (ipush (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ zero))))))))))))))))))))) (nil Instr))
+prog_ok evaluates to (refl (List Nat) (cons Nat (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ zero)))))))))))))))))))) (nil Nat)))
+prog_opt_ok evaluates to (refl (List Nat) (cons Nat (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ (succ zero)))))))))))))))))))) (nil Nat)))
+--- stderr ---
+--- exit: 0 ---

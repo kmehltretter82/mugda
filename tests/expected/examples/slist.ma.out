@@ -1,0 +1,9 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+list evaluates to (cons Enum # cc (cons Enum # aa (cons Enum # bb (nil Enum #))))
+revlist evaluates to (cons Enum # bb (cons Enum # aa (cons Enum # cc (nil Enum #))))
+sortlist evaluates to (cons Enum # aa (cons Enum # bb (cons Enum # cc (nil Enum #))))
+--- stderr ---
+--- exit: 0 ---

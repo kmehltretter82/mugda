@@ -1,0 +1,8 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+tail : type not admissible
+zipWith : type not admissible
+--- evaluating ---
+--- stderr ---
+--- exit: 1 ---

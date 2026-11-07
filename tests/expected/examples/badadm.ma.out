@@ -1,0 +1,7 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+error during typechecking:
+SBla: not a set: Size
+--- stderr ---
+--- exit: 1 ---

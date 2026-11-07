@@ -1,0 +1,11 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+six evaluates to (succ (succ (succ (succ (succ (succ zero))))))
+five evaluates to (succ (succ (succ (succ (succ zero)))))
+four evaluates to (succ (succ (succ (succ zero))))
+bools evaluates to (cons Bool tt (cons Bool ff (cons Bool tt (nil Bool))))
+len evaluates to (succ (succ (succ zero)))
+--- stderr ---
+--- exit: 0 ---

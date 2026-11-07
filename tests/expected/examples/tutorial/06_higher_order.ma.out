@@ -1,0 +1,9 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+leaves evaluates to (cons Nat # (succ zero) (cons Nat # (succ (succ zero)) (cons Nat # (succ (succ (succ zero))) (nil Nat #))))
+leaves2 evaluates to (cons Nat # (succ (succ zero)) (cons Nat # (succ (succ (succ zero))) (cons Nat # (succ (succ (succ (succ zero)))) (nil Nat #))))
+sum evaluates to (ssucc # (ssucc # (ssucc # (szero #))))
+--- stderr ---
+--- exit: 0 ---

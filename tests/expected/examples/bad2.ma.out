@@ -1,0 +1,5 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- stderr ---
+scope check error: Identifier suc already in signature
+--- exit: 1 ---

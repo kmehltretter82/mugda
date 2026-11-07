@@ -1,0 +1,7 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+badPred : size pattern incomplete
+--- evaluating ---
+--- stderr ---
+--- exit: 1 ---

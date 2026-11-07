@@ -1,0 +1,12 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+wkSNat2 : type not admissible
+wkSNat2 : size pattern incomplete
+--- evaluating ---
+one evaluates to (succ # (zero #))
+four evaluates to (succ # (succ # (succ # (succ # (zero #)))))
+div4_4 evaluates to (succ # (zero #))
+gcd6_4 evaluates to (succ # (succ # (zero #)))
+--- stderr ---
+--- exit: 1 ---

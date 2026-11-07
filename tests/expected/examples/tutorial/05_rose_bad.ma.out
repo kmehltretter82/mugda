@@ -1,0 +1,7 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+error during typechecking:
+Rose: rose: rec. arg not strictly positive
+--- stderr ---
+--- exit: 1 ---

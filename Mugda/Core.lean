@@ -159,7 +159,43 @@ inductive Val : Type where
   | VGen   : Nat → Val
   | VPi    : Name → Val → List (Name × Val) → Expr → Val
   | VLam   : Name → List (Name × Val) → Expr → Val
-  deriving Repr, Inhabited, BEq
+  deriving Repr, Inhabited
+
+mutual
+  def valBeq : Val → Val → Bool
+    | .VSet,            .VSet            => true
+    | .VSize,           .VSize           => true
+    | .VInfty,          .VInfty          => true
+    | .VSucc v1,        .VSucc v2        => valBeq v1 v2
+    | .VApp u1 vs1,     .VApp u2 vs2     => valBeq u1 u2 && valBeqList vs1 vs2
+    | .VCon c1 n1,      .VCon c2 n2      => c1 == c2 && n1 == n2
+    | .VDef n1,         .VDef n2         => n1 == n2
+    | .VGen k1,         .VGen k2         => k1 == k2
+    | .VPi x1 a1 e1 b1, .VPi x2 a2 e2 b2 => x1 == x2 && valBeq a1 a2 && valBeqEnv e1 e2 && b1 == b2
+    | .VLam x1 e1 b1,   .VLam x2 e2 b2   => x1 == x2 && valBeqEnv e1 e2 && b1 == b2
+    | _,                _                => false
+
+  def valBeqList : List Val → List Val → Bool
+    | [],       []       => true
+    | v1 :: r1, v2 :: r2 => valBeq v1 v2 && valBeqList r1 r2
+    | _,        _        => false
+
+  def valBeqEnv : List (Name × Val) → List (Name × Val) → Bool
+    | [],             []             => true
+    | (x1, v1) :: r1, (x2, v2) :: r2 => x1 == x2 && valBeq v1 v2 && valBeqEnv r1 r2
+    | _,              _              => false
+end
+
+instance : BEq Val := ⟨valBeq⟩
+
+@[simp] theorem Val.beq_vset : (Val.VSet == Val.VSet) = true := rfl
+@[simp] theorem Val.bne_vset : (Val.VSet != Val.VSet) = false := rfl
+@[simp] theorem Val.beq_vsize : (Val.VSize == Val.VSize) = true := rfl
+@[simp] theorem Val.bne_vsize : (Val.VSize != Val.VSize) = false := rfl
+@[simp] theorem Val.beq_vinfty : (Val.VInfty == Val.VInfty) = true := rfl
+@[simp] theorem Val.bne_vinfty : (Val.VInfty != Val.VInfty) = false := rfl
+@[simp] theorem Val.beq_vgen (k1 k2 : Nat) : (Val.VGen k1 == Val.VGen k2) = (k1 == k2) := rfl
+@[simp] theorem Val.bne_vgen (k1 k2 : Nat) : (Val.VGen k1 != Val.VGen k2) = (k1 != k2) := rfl
 
 abbrev TVal := Val
 abbrev Env := List (Name × Val)
@@ -236,6 +272,22 @@ def sinfty : Val → Val
 
 /-- Default evaluation fuel for NbE and type checking. -/
 def defaultFuel : Nat := 1000
+
+/-- 3-valued pattern matching result (`matched` vs `mismatch` vs `stuck`).
+    Distinguishing constructor mismatch (`zero` vs `succ y`) from neutral stuckness
+    (`zero` vs `.VGen k`) prevents `matchClauses` from unsoundly falling through an
+    earlier constructor pattern into a later catch-all variable pattern during open
+    conversion checking. -/
+inductive MatchResult (α : Type) where
+  | matched  : α → MatchResult α
+  | mismatch : MatchResult α
+  | stuck    : MatchResult α
+  deriving DecidableEq, Repr, Inhabited, BEq
+
+def MatchResult.map (f : α → β) : MatchResult α → MatchResult β
+  | .matched a => .matched (f a)
+  | .mismatch  => .mismatch
+  | .stuck     => .stuck
 
 mutual
   def whnf (fuel : Nat) (env : Env) (e : Expr) : TypeCheck Val :=
@@ -342,10 +394,11 @@ mutual
       | .mk pl rhs :: cl2  => do
           let x ← matchClause fuel' [] pl rhs cll
           match x with
-          | none   => matchClauses fuel' cl2 cll
-          | some v => pure (some v)
+          | .matched v => pure (some v)
+          | .mismatch  => matchClauses fuel' cl2 cll
+          | .stuck     => pure none
 
-  def matchClause (fuel : Nat) (env : Env) (pats : List Pattern) (rhs : Expr) (vals : List Val) : TypeCheck (Option Val) :=
+  def matchClause (fuel : Nat) (env : Env) (pats : List Pattern) (rhs : Expr) (vals : List Val) : TypeCheck (MatchResult Val) :=
     match fuel with
     | 0 => throwErrorMsg "matchClause: out of fuel"
     | fuel' + 1 =>
@@ -353,15 +406,16 @@ mutual
       | [],      vl => do
           let v ← whnf fuel' env rhs
           let v2 ← app fuel' v vl
-          pure (some v2)
+          pure (.matched v2)
       | p :: pl, v :: vl => do
           let m ← matchPat fuel' env p v
           match m with
-          | some env' => matchClause fuel' env' pl rhs vl
-          | none      => pure none
-      | _ :: _,  [] => pure none
+          | .matched env' => matchClause fuel' env' pl rhs vl
+          | .mismatch     => pure .mismatch
+          | .stuck        => pure .stuck
+      | _ :: _,  [] => pure .stuck
 
-  def matchPat (fuel : Nat) (env : Env) (p : Pattern) (v0 : Val) : TypeCheck (Option Env) :=
+  def matchPat (fuel : Nat) (env : Env) (p : Pattern) (v0 : Val) : TypeCheck (MatchResult Env) :=
     match fuel with
     | 0 => throwErrorMsg "matchPat: out of fuel"
     | fuel' + 1 => do
@@ -369,26 +423,29 @@ mutual
           | .ConP .CoInd _ _ => force fuel' v0
           | _                => pure v0
         match p, v with
-        | .DotP _,       _                     => pure (some env)
-        | .VarP x,       _                     => pure (some (updateEnv env x v))
-        | .ConP _ x [],  .VCon _ y             => if x == y then pure (some env) else pure none
-        | .ConP _ x pl,  .VApp (.VCon _ y) vl  => if x == y then matchList fuel' env pl vl else pure none
-        | .SuccP p',     .VInfty               => matchPat fuel' env p' .VInfty
-        | .SuccP p',     .VSucc v'             => matchPat fuel' env p' v'
-        | _,             _                     => pure none
+        | .DotP _,            _                    => pure (.matched env)
+        | .VarP x,            _                    => pure (.matched (updateEnv env x v))
+        | .ConP _ x [],       .VCon _ y            => if x == y then pure (.matched env) else pure .mismatch
+        | .ConP _ x (_ :: _), .VCon _ y            => if x == y then pure .stuck else pure .mismatch
+        | .ConP _ x pl,       .VApp (.VCon _ y) vl => if x == y then matchList fuel' env pl vl else pure .mismatch
+        | .ConP _ _ _,        _                    => pure .stuck
+        | .SuccP p',          .VInfty              => matchPat fuel' env p' .VInfty
+        | .SuccP p',          .VSucc v'            => matchPat fuel' env p' v'
+        | .SuccP _,           _                    => pure .stuck
 
-  def matchList (fuel : Nat) (env : Env) (pats : List Pattern) (vals : List Val) : TypeCheck (Option Env) :=
+  def matchList (fuel : Nat) (env : Env) (pats : List Pattern) (vals : List Val) : TypeCheck (MatchResult Env) :=
     match fuel with
     | 0 => throwErrorMsg "matchList: out of fuel"
     | fuel' + 1 =>
       match pats, vals with
-      | [],      []      => pure (some env)
+      | [],      []      => pure (.matched env)
       | p :: pl, v :: vl => do
           let m ← matchPat fuel' env p v
           match m with
-          | some env' => matchList fuel' env' pl vl
-          | none      => pure none
-      | _,       _       => pure none
+          | .matched env' => matchList fuel' env' pl vl
+          | .mismatch     => pure .mismatch
+          | .stuck        => pure .stuck
+      | _,       _       => pure .stuck
 end
 
 /- Semantic non-occurrence check (`Value.hs` lines 228–245). -/

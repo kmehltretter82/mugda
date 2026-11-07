@@ -1,0 +1,20 @@
+-- Expect: accept
+--
+-- SizedLib: a small library and a verified compiler in Mugda.
+--
+-- GENERATED FILE -- DO NOT EDIT BY HAND.
+-- This file is the concatenation of examples/showcase/sizedlib/src/*.ma
+-- (Mugda has no imports).  Edit the parts in src/ and regenerate with
+--     make showcase
+-- or  cat examples/showcase/sizedlib/src/*.ma > examples/showcase/sizedlib/sizedlib.ma
+--
+-- Parts:
+--   01_prelude      Bool, Nat, SNat, Maybe, Prod, Sigma, Eq, List, SList,
+--                   equational lemmas, decimal display
+--   02_sized        div, gcd, quicksort, merge sort, rose trees, ordinals:
+--                   terminating only thanks to sized types
+--   03_coinduction  sized streams, stream processors, bisimulation proofs
+--   04_compiler     expressions -> stack machine, with a correctness proof
+--                   and a verified constant-folding pass
+--
+-- Check with:  .lake/build/bin/mugda examples/showcase/sizedlib/sizedlib.ma

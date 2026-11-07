@@ -102,10 +102,10 @@ theorem matchPat_dotP_erased (fuel : Nat) (env : Env) (e : Expr) (v1 v2 : Val) (
     This proves why `completePatterns` (`cp (.SuccP _) = false`) is necessary for size erasure. -/
 theorem succP_breaks_size_erasure (st : TCState) :
     runTypeCheck st (matchPat 2 [] (.SuccP (.VarP "i")) (.VSucc (.VGen 0))) =
-      .ok (some [("i", .VGen 0)], st) ∧
+      .ok (.matched [("i", .VGen 0)], st) ∧
     runTypeCheck st (matchPat 2 [] (.SuccP (.VarP "i")) .VInfty) =
-      .ok (some [("i", .VInfty)], st) ∧
-    (some [("i", Val.VGen 0)] ≠ some [("i", Val.VInfty)]) := by
+      .ok (.matched [("i", .VInfty)], st) ∧
+    (MatchResult.matched [("i", Val.VGen 0)] ≠ MatchResult.matched [("i", Val.VInfty)]) := by
   refine ⟨rfl, rfl, ?_⟩
   intro h
   injection h with hlist
@@ -178,19 +178,25 @@ theorem eraseSizesEnv_updateEnv (env : Env) (x : Name) (v : Val) :
 
 theorem matchPat_ind_nil_vcon (fuel : Nat) (env : Env) (x : Name) (co' : Co) (y : Name) (st : TCState) :
     runTypeCheck st (matchPat (fuel + 1) env (.ConP .Ind x []) (.VCon co' y)) =
-      if x == y then .ok (some env, st) else .ok (none, st) := by
-  change runTypeCheck st (if x == y then pure (some env) else pure none) = _
+      if x == y then .ok (.matched env, st) else .ok (.mismatch, st) := by
+  change runTypeCheck st (if x == y then pure (MatchResult.matched env) else pure MatchResult.mismatch) = _
+  cases (x == y) <;> rfl
+
+theorem matchPat_ind_cons_vcon (fuel : Nat) (env : Env) (x : Name) (q : Pattern) (ql : List Pattern) (co' : Co) (y : Name) (st : TCState) :
+    runTypeCheck st (matchPat (fuel + 1) env (.ConP .Ind x (q :: ql)) (.VCon co' y)) =
+      if x == y then .ok (.stuck, st) else .ok (.mismatch, st) := by
+  change runTypeCheck st (if x == y then pure MatchResult.stuck else pure MatchResult.mismatch) = _
   cases (x == y) <;> rfl
 
 theorem matchPat_ind_vapp_vcon (fuel : Nat) (env : Env) (x : Name) (pl : List Pattern) (co' : Co) (y : Name) (vl : List Val) (st : TCState) :
     runTypeCheck st (matchPat (fuel + 1) env (.ConP .Ind x pl) (.VApp (.VCon co' y) vl)) =
-      if x == y then runTypeCheck st (matchList fuel env pl vl) else .ok (none, st) := by
+      if x == y then runTypeCheck st (matchList fuel env pl vl) else .ok (.mismatch, st) := by
   cases pl with
   | nil =>
-    change runTypeCheck st (if x == y then matchList fuel env [] vl else pure none) = _
+    change runTypeCheck st (if x == y then matchList fuel env [] vl else pure MatchResult.mismatch) = _
     cases (x == y) <;> rfl
   | cons q ql =>
-    change runTypeCheck st (if x == y then matchList fuel env (q :: ql) vl else pure none) = _
+    change runTypeCheck st (if x == y then matchList fuel env (q :: ql) vl else pure MatchResult.mismatch) = _
     cases (x == y) <;> rfl
 
 theorem matchList_cons (fuel : Nat) (env : Env) (p : Pattern) (pl : List Pattern) (v : Val) (vl : List Val) (st : TCState) :
@@ -199,8 +205,9 @@ theorem matchList_cons (fuel : Nat) (env : Env) (p : Pattern) (pl : List Pattern
       | .error err => .error err
       | .ok (m, st1) =>
         match m with
-        | some env' => runTypeCheck st1 (matchList fuel env' pl vl)
-        | none => .ok (none, st1) := by
+        | .matched env' => runTypeCheck st1 (matchList fuel env' pl vl)
+        | .mismatch     => .ok (.mismatch, st1)
+        | .stuck        => .ok (.stuck, st1) := by
   conv => lhs; unfold matchList
   rw [runTypeCheck_bind]
   cases runTypeCheck st (matchPat fuel env p v) with
@@ -226,8 +233,8 @@ mutual
       cases p with
       | DotP e => rfl
       | VarP x =>
-        change Except.ok (some (updateEnv (eraseSizesEnv env) x (eraseSizesVal v0)), st) =
-               Except.ok (some (eraseSizesEnv (updateEnv env x v0)), st)
+        change Except.ok (MatchResult.matched (updateEnv (eraseSizesEnv env) x (eraseSizesVal v0)), st) =
+               Except.ok (MatchResult.matched (eraseSizesEnv (updateEnv env x v0)), st)
         rw [eraseSizesEnv_updateEnv]
       | SuccP p' => contradiction
       | ConP co x pl =>
@@ -254,6 +261,10 @@ mutual
             | _ => rfl
           | cons q ql =>
             cases v0 with
+            | VCon co' y =>
+              unfold eraseSizesVal
+              rw [matchPat_ind_cons_vcon, matchPat_ind_cons_vcon]
+              cases (x == y) <;> rfl
             | VApp u vl =>
               cases u with
               | VCon co' y =>
@@ -291,10 +302,94 @@ mutual
           | ok resSt =>
             rcases resSt with ⟨m, st1⟩
             cases m with
-            | none => rfl
-            | some env' =>
+            | mismatch => rfl
+            | stuck    => rfl
+            | matched env' =>
               exact matchList_eraseSizes_comm fuel' env' pl vl st1 hps.2
 end
+
+/-! ### 2B. Universal 3-Valued Multi-Clause Matching & Neutral Stuckness (`matchClause` / `matchClauses`) -/
+
+/-- **Theorem 8a (Constructor Pattern Stuck on Neutral `.VGen`)**:
+    Matching any inductive constructor pattern `.ConP .Ind x pl` against a neutral
+    variable `.VGen k` returns `.stuck` (never `.mismatch`). -/
+theorem matchPat_conP_vgen_stuck (fuel : Nat) (env : Env) (x : Name) (pl : List Pattern) (k : Nat) (st : TCState) :
+    runTypeCheck st (matchPat (fuel + 1) env (.ConP .Ind x pl) (.VGen k)) = .ok (.stuck, st) := by
+  cases pl <;> rfl
+
+/-- **Theorem 8b (Size Successor Pattern Stuck on Neutral `.VGen`)**:
+    Matching any size successor pattern `.SuccP p'` against a neutral size variable
+    `.VGen k` returns `.stuck`. -/
+theorem matchPat_succP_vgen_stuck (fuel : Nat) (env : Env) (p' : Pattern) (k : Nat) (st : TCState) :
+    runTypeCheck st (matchPat (fuel + 1) env (.SuccP p') (.VGen k)) = .ok (.stuck, st) := rfl
+
+theorem matchClause_cons (fuel : Nat) (env : Env) (p : Pattern) (pl : List Pattern) (rhs : Expr) (v : Val) (vl : List Val) (st : TCState) :
+    runTypeCheck st (matchClause (fuel + 1) env (p :: pl) rhs (v :: vl)) =
+      match runTypeCheck st (matchPat fuel env p v) with
+      | .error err => .error err
+      | .ok (m, st1) =>
+        match m with
+        | .matched env' => runTypeCheck st1 (matchClause fuel env' pl rhs vl)
+        | .mismatch     => .ok (.mismatch, st1)
+        | .stuck        => .ok (.stuck, st1) := by
+  conv => lhs; unfold matchClause
+  rw [runTypeCheck_bind]
+  cases runTypeCheck st (matchPat fuel env p v) with
+  | error err => rfl
+  | ok res =>
+    rcases res with ⟨m, st1⟩
+    cases m <;> rfl
+
+theorem matchClauses_cons (fuel : Nat) (pl : List Pattern) (rhs : Expr) (cl2 : List Clause) (cll : List Val) (st : TCState) :
+    runTypeCheck st (matchClauses (fuel + 1) (.mk pl rhs :: cl2) cll) =
+      match runTypeCheck st (matchClause fuel [] pl rhs cll) with
+      | .error err => .error err
+      | .ok (m, st1) =>
+        match m with
+        | .matched v => .ok (some v, st1)
+        | .mismatch  => runTypeCheck st1 (matchClauses fuel cl2 cll)
+        | .stuck     => .ok (none, st1) := by
+  conv => lhs; unfold matchClauses
+  rw [runTypeCheck_bind]
+  cases runTypeCheck st (matchClause fuel [] pl rhs cll) with
+  | error err => rfl
+  | ok res =>
+    rcases res with ⟨m, st1⟩
+    cases m <;> rfl
+
+/-- **Theorem 8c (Universal Stuckness Barrier in `matchClauses`)**:
+    Whenever the head pattern `p` of a clause `.mk (p :: pl) rhs` is `.stuck` on the
+    head argument `v`, `matchClauses` halts immediately and returns `none` without
+    falling through to any subsequent catch-all clause in `cl2`. -/
+theorem matchClauses_stuck_blocks_fallthrough
+    (fuel : Nat) (p : Pattern) (pl : List Pattern) (rhs : Expr) (cl2 : List Clause)
+    (v : Val) (vl : List Val) (st st1 : TCState)
+    (h_stuck : runTypeCheck st (matchPat fuel [] p v) = .ok (.stuck, st1)) :
+    runTypeCheck st (matchClauses (fuel + 2) (.mk (p :: pl) rhs :: cl2) (v :: vl)) =
+      .ok (none, st1) := by
+  rw [matchClauses_cons, matchClause_cons, h_stuck]
+
+/-- **Theorem 8d (Universal Constructor Mismatch Fallthrough in `matchClauses`)**:
+    Whenever the head pattern `p` of a clause `.mk (p :: pl) rhs` is a definite constructor
+    `.mismatch` on `v`, `matchClauses` advances to the remaining clauses `cl2`. -/
+theorem matchClauses_mismatch_advances
+    (fuel : Nat) (p : Pattern) (pl : List Pattern) (rhs : Expr) (cl2 : List Clause)
+    (v : Val) (vl : List Val) (st st1 : TCState)
+    (h_mis : runTypeCheck st (matchPat fuel [] p v) = .ok (.mismatch, st1)) :
+    runTypeCheck st (matchClauses (fuel + 2) (.mk (p :: pl) rhs :: cl2) (v :: vl)) =
+      runTypeCheck st1 (matchClauses (fuel + 1) cl2 (v :: vl)) := by
+  rw [matchClauses_cons, matchClause_cons, h_mis]
+
+/-- **Theorem 8e (Constructor Clauses Never Fall Through on Neutral Variables)**:
+    For any inductive constructor head pattern `.ConP .Ind x args`, any catch-all tail
+    clauses `cl2`, and any neutral head argument `.VGen k`, `matchClauses` returns `none`. -/
+theorem matchClauses_conP_vgen_never_falls_through
+    (fuel : Nat) (x : Name) (args pl : List Pattern) (rhs : Expr) (cl2 : List Clause)
+    (k : Nat) (vl : List Val) (st : TCState) :
+    runTypeCheck st (matchClauses (fuel + 3) (.mk (.ConP .Ind x args :: pl) rhs :: cl2) (.VGen k :: vl)) =
+      .ok (none, st) := by
+  exact matchClauses_stuck_blocks_fallthrough (fuel + 1) (.ConP .Ind x args) pl rhs cl2 (.VGen k) vl st st
+    (matchPat_conP_vgen_stuck fuel [] x args k st)
 
 /-! ## 3. Universal `nocc`, `substVal`, `checkNoccEnv` & `checkNoccDomains` Theorems (Pillar I & II) -/
 
@@ -502,6 +597,565 @@ theorem checkNoccDomains_pi
         rcases res2 with ⟨bv, st2⟩
         rw [hw] at h
         exact ⟨st1, bv, st2, rfl, hw, h⟩
+
+/-! ### 3B. Universal Strict Positivity Theorems (`SPos`: `posGen`, `posArgs`, `spos`, `sposVals`, `sposConstructor`) -/
+
+/-- **Theorem 12a (`posArgs` Partition Length Invariant)**:
+    `posArgs vs ps` partitions the prefix of `vs` of length `min vs.length ps.length`
+    into positive parameters `(posArgs vs ps).1` and non-positive parameters `(posArgs vs ps).2`. -/
+theorem posArgs_length (vs : List Val) (ps : List Pos) :
+    (posArgs vs ps).1.length + (posArgs vs ps).2.length = min vs.length ps.length := by
+  induction vs generalizing ps with
+  | nil =>
+    cases ps <;> rfl
+  | cons v vs ih =>
+    cases ps with
+    | nil => rfl
+    | cons p ps =>
+      cases p with
+      | SPos =>
+        simp only [posArgs, List.length_cons]
+        have ih' := ih ps
+        omega
+      | NSPos =>
+        simp only [posArgs, List.length_cons]
+        have ih' := ih ps
+        omega
+
+/-- **Theorem 12b (`posGen` Monotone Variable Generation)**:
+    `posGen i ps` generates at most `ps.length` generic variables, one per `.SPos` entry. -/
+theorem posGen_length_le (i : Nat) (ps : List Pos) :
+    (posGen i ps).length ≤ ps.length := by
+  induction ps generalizing i with
+  | nil => exact Nat.le_refl 0
+  | cons p ps ih =>
+    cases p with
+    | SPos =>
+      simp only [posGen, List.length_cons]
+      exact Nat.succ_le_succ (ih (i + 1))
+    | NSPos =>
+      simp only [posGen, List.length_cons]
+      exact Nat.le_succ_of_le (ih (i + 1))
+
+/-- **Theorem 12c (Direct Target Occurrence is Strictly Positive)**:
+    Whenever `(a == tv) = true`, `spos (fuel + 1) k a tv` immediately succeeds with `true`. -/
+theorem spos_eq_true_of_beq (fuel k : Nat) (a tv : Val) (st : TCState) (h : (a == tv) = true) :
+    runTypeCheck st (spos (fuel + 1) k a tv) = .ok (true, st) := by
+  conv => lhs; unfold spos
+  rw [h]
+  rfl
+
+/-- **Theorem 12d (Negative/Domain Occurrences Forbidden by `spos` on `.VPi`)**:
+    If `a` is not equal to `.VPi x av env b` (`(a == .VPi x av env b) = false`) and
+    `spos (fuel + 1) k a (.VPi x av env b)` returns `true`, then `a` does **not** occur
+    anywhere in the domain `av` (`nocc fuel k a av` returns `true`) and is strictly
+    positive in the codomain `bv`. -/
+theorem spos_vpi_inv
+    (fuel k : Nat) (a : Val) (x : Name) (av : TVal) (env : Env) (b : Expr) (st st' : TCState)
+    (hne : (a == .VPi x av env b) = false)
+    (h : runTypeCheck st (spos (fuel + 1) k a (.VPi x av env b)) = .ok (true, st')) :
+    ∃ st1 bv st2,
+      runTypeCheck st (nocc fuel k a av) = .ok (true, st1) ∧
+      runTypeCheck st1 (whnf fuel (updateEnv env x (.VGen k)) b) = .ok (bv, st2) ∧
+      runTypeCheck st2 (spos fuel (k + 1) a bv) = .ok (true, st') := by
+  conv at h => lhs; unfold spos
+  rw [hne] at h
+  dsimp at h
+  rw [runTypeCheck_bind] at h
+  cases hn : runTypeCheck st (nocc fuel k a av) with
+  | error err =>
+    rw [hn] at h
+    contradiction
+  | ok res =>
+    rcases res with ⟨no, st1⟩
+    rw [hn] at h
+    cases no with
+    | false =>
+      change Except.ok (false, st1) = Except.ok (true, st') at h
+      injection h with hp
+      injection hp with hf _
+      contradiction
+    | true =>
+      dsimp at h
+      rw [runTypeCheck_bind] at h
+      cases hw : runTypeCheck st1 (whnf fuel (updateEnv env x (.VGen k)) b) with
+      | error err =>
+        rw [hw] at h
+        contradiction
+      | ok res2 =>
+        rcases res2 with ⟨bv, st2⟩
+        rw [hw] at h
+        exact ⟨st1, bv, st2, rfl, hw, h⟩
+
+/-- **Theorem 12e (Universal Inversion of `sposVals` on Parameter Lists)**:
+    `sposVals fuel k (v :: vs) tv` returns `true` iff `spos fuel k v tv` returns `true`
+    and `sposVals fuel k vs tv` returns `true`. -/
+theorem sposVals_cons_true
+    (fuel k : Nat) (v : Val) (vs : List Val) (tv : TVal) (st st' : TCState)
+    (h : runTypeCheck st (sposVals fuel k (v :: vs) tv) = .ok (true, st')) :
+    ∃ st1,
+      runTypeCheck st (spos fuel k v tv) = .ok (true, st1) ∧
+      runTypeCheck st1 (sposVals fuel k vs tv) = .ok (true, st') := by
+  unfold sposVals at h
+  rw [runTypeCheck_bind] at h
+  cases h1 : runTypeCheck st (spos fuel k v tv) with
+  | error err =>
+    rw [h1] at h
+    contradiction
+  | ok res1 =>
+    rcases res1 with ⟨b1, st1⟩
+    rw [h1] at h
+    dsimp at h
+    rw [runTypeCheck_bind] at h
+    cases h2 : runTypeCheck st1 (sposVals fuel k vs tv) with
+    | error err =>
+      rw [h2] at h
+      contradiction
+    | ok res2 =>
+      rcases res2 with ⟨b2, st2⟩
+      rw [h2] at h
+      injection h with hpair
+      injection hpair with hb hst
+      rw [Bool.and_eq_true] at hb
+      subst hst
+      rcases hb with ⟨rfl, rfl⟩
+      exact ⟨st1, rfl, h2⟩
+
+/-- **Theorem 12f (Universal Soundness of `sposConstructor` on Constructor Telescopes)**:
+    Whenever `sposConstructor (fuel + 1) n k sp (.VPi x av env b)` succeeds, both:
+    1. the recursive inductive type `.VDef n` occurs strictly positively in the argument domain `av`
+       (`spos fuel k (.VDef n) av = true`),
+    2. every `+`-marked parameter in `posGen 0 sp` occurs strictly positively in `av`
+       (`sposVals fuel k (posGen 0 sp) av = true`), and
+    3. the remainder of the constructor telescope `bv` satisfies `sposConstructor` at `k + 1`. -/
+theorem sposConstructor_vpi_inv
+    (fuel : Nat) (n : Name) (k : Nat) (sp : List Pos)
+    (x : Name) (av : TVal) (env : Env) (b : Expr) (st st' : TCState)
+    (h : runTypeCheck st (sposConstructor (fuel + 1) n k sp (.VPi x av env b)) = .ok ((), st')) :
+    ∃ st1 st2 bv st3,
+      runTypeCheck st (spos fuel k (.VDef n) av) = .ok (true, st1) ∧
+      runTypeCheck st1 (sposVals fuel k (posGen 0 sp) av) = .ok (true, st2) ∧
+      runTypeCheck st2 (whnf fuel (updateEnv env x (.VGen k)) b) = .ok (bv, st3) ∧
+      runTypeCheck st3 (sposConstructor fuel n (k + 1) sp bv) = .ok ((), st') := by
+  unfold sposConstructor at h
+  rw [runTypeCheck_bind] at h
+  cases hspr : runTypeCheck st (spos fuel k (.VDef n) av) with
+  | error err =>
+    rw [hspr] at h
+    contradiction
+  | ok res1 =>
+    rcases res1 with ⟨spr, st1⟩
+    rw [hspr] at h
+    dsimp at h
+    rw [runTypeCheck_bind] at h
+    cases hspv : runTypeCheck st1 (sposVals fuel k (posGen 0 sp) av) with
+    | error err =>
+      rw [hspv] at h
+      contradiction
+    | ok res2 =>
+      rcases res2 with ⟨spv, st2⟩
+      rw [hspv] at h
+      cases spr with
+      | false => contradiction
+      | true =>
+        cases spv with
+        | false => contradiction
+        | true =>
+          dsimp at h
+          rw [runTypeCheck_bind] at h
+          cases hw : runTypeCheck st2 (whnf fuel (updateEnv env x (.VGen k)) b) with
+          | error err =>
+            rw [hw] at h
+            contradiction
+          | ok res3 =>
+            rcases res3 with ⟨bv, st3⟩
+            rw [hw] at h
+            exact ⟨st1, st2, bv, st3, rfl, hspv, hw, h⟩
+
+/-! ### 3C. Universal Conversion, Subtyping & Admissibility Theorems (`eqVal`, `leqVal`, `leqApp`, `szSizeVarTarget`, `szUsed'`) -/
+
+/-- **Theorem 12g (`switchForce` Involution)**:
+    Switching force history twice in contravariant Pi domains restores the original `ForceHist`. -/
+@[simp] theorem switchForce_involutive (f : ForceHist) :
+    switchForce (switchForce f) = f := by
+  cases f <;> rfl
+
+@[simp] theorem force_vset (fuel : Nat) :
+    force (fuel + 1) .VSet = pure .VSet := by
+  conv => lhs; unfold force
+
+@[simp] theorem force_vsize (fuel : Nat) :
+    force (fuel + 1) .VSize = pure .VSize := by
+  conv => lhs; unfold force
+
+@[simp] theorem force_vinfty (fuel : Nat) :
+    force (fuel + 1) .VInfty = pure .VInfty := by
+  conv => lhs; unfold force
+
+@[simp] theorem force_vgen (fuel k : Nat) :
+    force (fuel + 1) (.VGen k) = pure (.VGen k) := by
+  conv => lhs; unfold force
+
+/-- **Theorem 12h (Universal Reflexivity of `eqVal'` on Base Sorts & `#`)**:
+    `eqVal'` is reflexive on `.VSet`, `.VSize`, and `.VInfty` (`#`) at any force history `f`. -/
+theorem eqVal'_base_refl (fuel : Nat) (f : ForceHist) (k : Nat) (st : TCState) :
+    runTypeCheck st (eqVal' (fuel + 2) f k .VSet .VSet) = .ok ((), st) ∧
+    runTypeCheck st (eqVal' (fuel + 2) f k .VSize .VSize) = .ok ((), st) ∧
+    runTypeCheck st (eqVal' (fuel + 2) f k .VInfty .VInfty) = .ok ((), st) := by
+  refine ⟨?_, ?_, ?_⟩
+  · conv => lhs; unfold eqVal'
+    simp only [force_vset, pure_bind, Val.bne_vset, Val.beq_vset, Bool.false_and, ↓reduceIte]
+    rfl
+  · conv => lhs; unfold eqVal'
+    simp only [force_vsize, pure_bind, Val.bne_vsize, Val.beq_vsize, Bool.false_and, ↓reduceIte]
+    rfl
+  · conv => lhs; unfold eqVal'
+    simp only [force_vinfty, pure_bind, Val.bne_vinfty, Val.beq_vinfty, Bool.false_and, ↓reduceIte]
+    rfl
+
+/-- **Theorem 12i (Universal Characterization of `eqVal'` on Generic Variables `.VGen`)**:
+    `eqVal' (fuel + 2) f k (.VGen k1) (.VGen k2)` succeeds iff `k1 = k2`. -/
+theorem eqVal'_vgen_iff (fuel : Nat) (f : ForceHist) (k k1 k2 : Nat) (st : TCState) :
+    runTypeCheck st (eqVal' (fuel + 2) f k (.VGen k1) (.VGen k2)) =
+      if k1 == k2 then .ok ((), st) else .error "eqVal error" := by
+  conv => lhs; unfold eqVal'
+  simp only [force_vgen, pure_bind, Val.bne_vgen, Val.beq_vgen, bne_self_eq_false, Bool.false_and]
+  dsimp
+  by_cases h : (k1 == k2) = true <;> simp [h] <;> rfl
+
+/-- **Theorem 12j (Universal Characterization of `leqVal'` on Generic Variables `.VGen`)**:
+    `leqVal' (fuel + 2) f k (.VGen k1) (.VGen k2)` succeeds iff `k1 = k2`. -/
+theorem leqVal'_vgen_iff (fuel : Nat) (f : ForceHist) (k k1 k2 : Nat) (st : TCState) :
+    runTypeCheck st (leqVal' (fuel + 2) f k (.VGen k1) (.VGen k2)) =
+      if k1 == k2 then .ok ((), st) else .error "gen mismatch" := by
+  conv => lhs; unfold leqVal'
+  simp only [force_vgen, pure_bind, Val.bne_vgen, bne_self_eq_false, Bool.false_and]
+  dsimp
+  cases (k1 == k2) <;> rfl
+
+/-- **Theorem 12k (Universal Variance Rule of `leqApp` on Sized Inductive vs. Coinductive Types)**:
+    When `n` is a 0-parameter sized data declaration (`DataSig 0 [] .Sized co tv`) in `st.sig`,
+    comparing `(.VDef n) [idx1]` against `(.VDef n) [idx2]` via `leqApp` reduces directly to:
+    - **covariant** `leqSize idx1 idx2` when `co = .Ind` (`SNat i ≤ SNat j` iff `i ≤ j`), and
+    - **contravariant** `leqSize idx2 idx1` when `co = .CoInd` (`Stream i ≤ Stream j` iff `j ≤ i`). -/
+theorem leqApp_sized_variance
+    (fuel : Nat) (f : ForceHist) (k : Nat) (n : Name) (co : Co) (tv : TVal)
+    (idx1 idx2 : Val) (st : TCState)
+    (hsig : lookupSigOpt n st.sig = some (.DataSig 0 [] .Sized co tv)) :
+    runTypeCheck st (leqApp (fuel + 2) f k (.VDef n) [idx1] (.VDef n) [idx2]) =
+      match co with
+      | .Ind   => runTypeCheck st (leqSize idx1 idx2)
+      | .CoInd => runTypeCheck st (leqSize idx2 idx1) := by
+  conv => lhs; unfold leqApp; dsimp
+  have hnn : (n == n) = true := beq_self_eq_true n
+  rw [hnn]
+  dsimp
+  rw [runTypeCheck_bind]
+  have hls : runTypeCheck st (lookupSig n) = .ok (.DataSig 0 [] .Sized co tv, st) := by
+    unfold lookupSig getSig
+    rw [runTypeCheck_bind]
+    have hg : runTypeCheck st (do let st ← get; pure st.sig) = .ok (st.sig, st) := rfl
+    rw [hg]
+    dsimp
+    rw [hsig]
+    rfl
+  rw [hls]
+  dsimp [posArgs, List.take, List.drop, getElemOpt]
+  have h1 : runTypeCheck st (leqVals' (fuel + 1) f k [] []) = .ok ((), st) := by
+    conv => lhs; unfold leqVals'
+    rfl
+  have h2 : runTypeCheck st (eqVals' (fuel + 1) f k [] []) = .ok ((), st) := by
+    conv => lhs; unfold eqVals'
+    rfl
+  rw [runTypeCheck_bind, h1]
+  dsimp
+  rw [runTypeCheck_bind, h2]
+  dsimp
+  cases co <;> rfl
+
+/-- **Theorem 12l (Universal Soundness of Bug 2 Fix in `szSizeVarTarget`)**:
+    If `szSizeVarTarget fuel k p i (.VApp h vl)` returns `true`, then the size index at
+    position `p` is `.VSucc (.VGen i)` AND `noccList` returns `true` on all non-size
+    parameters/indices `vl.take p ++ vl.drop (p + 1)` (preventing `Wrap`-style parameter smuggling). -/
+theorem szSizeVarTarget_enforces_rargs_nocc
+    (fuel k p i : Nat) (hd : Val) (vl : List Val) (st st' : TCState)
+    (h : runTypeCheck st (szSizeVarTarget fuel k p i (.VApp hd vl)) = .ok (true, st')) :
+    getElemOpt vl p = some (.VSucc (.VGen i)) ∧
+    runTypeCheck st (noccList fuel k (.VGen i) (vl.take p ++ vl.drop (p + 1))) = .ok (true, st') := by
+  dsimp [szSizeVarTarget] at h
+  cases hget : getElemOpt vl p with
+  | none =>
+    rw [hget] at h
+    injection h with hp
+    injection hp with hf _
+    contradiction
+  | some v =>
+    rw [hget] at h
+    cases v with
+    | VSucc v' =>
+      cases v' with
+      | VGen i' =>
+        dsimp at h
+        cases hi : (i == i') with
+        | false =>
+          rw [hi] at h
+          injection h with hp
+          injection hp with hf _
+          contradiction
+        | true =>
+          rw [hi] at h
+          have hii' : i = i' := beq_iff_eq.mp hi
+          subst hii'
+          exact ⟨rfl, h⟩
+      | _ =>
+        dsimp at h
+        injection h with hp
+        injection hp with hf _
+        contradiction
+    | _ =>
+      dsimp at h
+      injection h with hp
+      injection hp with hf _
+      contradiction
+
+/-! ### 3D. Universal Dependent Pattern & Dot-Pattern Typechecking Theorems (`p2v`, `checkPattern`, `checkPatterns`, `checkDot`) -/
+
+@[simp] theorem p2v_varP (k : Nat) (x : Name) :
+    p2v k (.VarP x) = (.VGen k, k + 1) := rfl
+
+@[simp] theorem p2v_dotP (k : Nat) (e : Expr) :
+    p2v k (.DotP e) = (.VGen k, k + 1) := rfl
+
+@[simp] theorem patternToVal_varP (k : Nat) (x : Name) :
+    patternToVal k (.VarP x) = .VGen k := rfl
+
+@[simp] theorem patternToVal_dotP (k : Nat) (e : Expr) :
+    patternToVal k (.DotP e) = .VGen k := rfl
+
+/-- **Theorem 12m (Universal Characterization of `checkPattern` on Variable Patterns `.VarP`)**:
+    Matching a variable pattern `.VarP y` against `.VPi x av env b` introduces a fresh
+    generic variable `.VGen k`, binds `y ↦ .VGen k` in `rho` and `y ↦ av` in `gamma`,
+    and evaluates the codomain `b` at `x ↦ .VGen k`. -/
+theorem checkPattern_varP
+    (fuel k : Nat) (flex : FlexEnv) (ins : Substitution) (rho gamma : Env)
+    (x : Name) (av : TVal) (env : Env) (b : Expr) (y : Name) (st : TCState) :
+    runTypeCheck st (checkPattern (fuel + 1) k flex ins rho gamma (.VPi x av env b) (.VarP y)) =
+      (runTypeCheck st (whnf fuel (updateEnv env x (.VGen k)) b)).map
+        (fun (bv, st1) => ((k + 1, flex, ins, updateEnv rho y (.VGen k), updateEnv gamma y av, bv), st1)) := by
+  conv => lhs; unfold checkPattern
+  dsimp
+  rw [runTypeCheck_bind]
+  cases runTypeCheck st (whnf fuel (updateEnv env x (.VGen k)) b) <;> rfl
+
+/-- **Theorem 12n (Universal Characterization of `checkPattern` on Inaccessible Dot Patterns `.DotP`)**:
+    Matching a dot pattern `.DotP e` against `.VPi x av env b` records the deferred
+    obligation `(k, (e, av))` in `flex` and advances the binder counter to `k + 1`. -/
+theorem checkPattern_dotP
+    (fuel k : Nat) (flex : FlexEnv) (ins : Substitution) (rho gamma : Env)
+    (x : Name) (av : TVal) (env : Env) (b : Expr) (e : Expr) (st : TCState) :
+    runTypeCheck st (checkPattern (fuel + 1) k flex ins rho gamma (.VPi x av env b) (.DotP e)) =
+      (runTypeCheck st (whnf fuel (updateEnv env x (.VGen k)) b)).map
+        (fun (bv, st1) => ((k + 1, (k, (e, av)) :: flex, ins, rho, gamma, bv), st1)) := by
+  conv => lhs; unfold checkPattern
+  dsimp
+  rw [runTypeCheck_bind]
+  cases runTypeCheck st (whnf fuel (updateEnv env x (.VGen k)) b) <;> rfl
+
+/-- **Theorem 12o (Universal Soundness of `checkDot` on Deferred Inaccessible Patterns)**:
+    If `checkDot fuel k rho gamma sub (i, (e, tv))` succeeds, then:
+    1. the flexible variable `i` was instantiated in `sub` (`lookupSubst i sub = some v`),
+    2. the dot-pattern expression `e` typechecks at the substituted type `substVal fuel sub tv`, and
+    3. the value `whnf fuel rho e` of `e` is definitionally equal (`eqVal`) to `v`. -/
+theorem checkDot_inv
+    (fuel k : Nat) (rho gamma : Env) (sub : Substitution) (i : Nat) (e : Expr) (tv : TVal)
+    (st st' : TCState)
+    (h : runTypeCheck st (checkDot fuel k rho gamma sub (i, (e, tv))) = .ok ((), st')) :
+    ∃ v tv' st1 st2 v' st3,
+      lookupSubst i sub = some v ∧
+      runTypeCheck st (substVal fuel sub tv) = .ok (tv', st1) ∧
+      runTypeCheck st1 (checkExpr fuel k rho gamma e tv') = .ok ((), st2) ∧
+      runTypeCheck st2 (whnf fuel rho e) = .ok (v', st3) ∧
+      runTypeCheck st3 (eqVal fuel k v v') = .ok ((), st') := by
+  dsimp [checkDot] at h
+  cases hsub : lookupSubst i sub with
+  | none => rw [hsub] at h; contradiction
+  | some v =>
+    rw [hsub] at h
+    dsimp at h
+    rw [runTypeCheck_bind] at h
+    cases htv : runTypeCheck st (substVal fuel sub tv) with
+    | error err => rw [htv] at h; contradiction
+    | ok res1 =>
+      rcases res1 with ⟨tv', st1⟩
+      rw [htv] at h
+      dsimp at h
+      rw [runTypeCheck_bind] at h
+      cases hce : runTypeCheck st1 (checkExpr fuel k rho gamma e tv') with
+      | error err => rw [hce] at h; contradiction
+      | ok res2 =>
+        rcases res2 with ⟨_, st2⟩
+        rw [hce] at h
+        dsimp at h
+        rw [runTypeCheck_bind] at h
+        cases hw : runTypeCheck st2 (whnf fuel rho e) with
+        | error err => rw [hw] at h; contradiction
+        | ok res3 =>
+          rcases res3 with ⟨v', st3⟩
+          rw [hw] at h
+          exact ⟨v, tv', st1, st2, v', st3, rfl, rfl, hce, hw, h⟩
+
+/-- **Theorem 12p (Universal Pattern-Refinement Loop Enforcement in `checkPattern`)**:
+    In the `.ConP` branch of `checkPattern`, the `forM` check over `newSuccVars`
+    (`newSuccVars.forM fun j => do checkNoccEnv fuel' k' j gamma; checkNoccDomains fuel' k' j vb0`)
+    succeeds only if **every** newly successor-refined size variable `j ∈ newSuccVars` passes
+    both `checkNoccEnv` on `gamma` and `checkNoccDomains` on `vb0`. -/
+theorem forM_checkNocc_of_mem
+    (fuel k : Nat) (gamma : Env) (vb0 : TVal) (vars : List Nat) (st st' : TCState)
+    (h : runTypeCheck st (vars.forM fun j => do
+          checkNoccEnv fuel k j gamma
+          checkNoccDomains fuel k j vb0) = .ok ((), st')) :
+    ∀ j ∈ vars, ∃ st0 st1 st2,
+      runTypeCheck st0 (checkNoccEnv fuel k j gamma) = .ok ((), st1) ∧
+      runTypeCheck st1 (checkNoccDomains fuel k j vb0) = .ok ((), st2) := by
+  induction vars generalizing st with
+  | nil =>
+    intro j hj
+    cases hj
+  | cons x xs ih =>
+    intro j hj
+    change runTypeCheck st ((do
+      checkNoccEnv fuel k x gamma
+      checkNoccDomains fuel k x vb0) >>= fun _ =>
+      xs.forM fun j => do
+        checkNoccEnv fuel k j gamma
+        checkNoccDomains fuel k j vb0) = .ok ((), st') at h
+    rw [runTypeCheck_bind] at h
+    cases h1 : runTypeCheck st (do checkNoccEnv fuel k x gamma; checkNoccDomains fuel k x vb0) with
+    | error err => rw [h1] at h; contradiction
+    | ok res1 =>
+      rcases res1 with ⟨_, st2⟩
+      rw [h1] at h
+      rw [runTypeCheck_bind] at h1
+      cases hc1 : runTypeCheck st (checkNoccEnv fuel k x gamma) with
+      | error err => rw [hc1] at h1; contradiction
+      | ok res0 =>
+        rcases res0 with ⟨_, st1⟩
+        rw [hc1] at h1
+        rcases List.mem_cons.mp hj with rfl | hmem
+        · exact ⟨st, st1, st2, hc1, h1⟩
+        · exact ih st2 h j hmem
+
+/-! ### 3E. Universal Bidirectional Expression & Type Checking Theorems (`checkType`, `checkExpr`, `inferExpr`) -/
+
+@[simp] theorem checkType_set (fuel k : Nat) (rho gamma : Env) (st : TCState) :
+    runTypeCheck st (checkType (fuel + 1) k rho gamma .Set) = .ok ((), st) := rfl
+
+@[simp] theorem checkType_size (fuel k : Nat) (rho gamma : Env) (st : TCState) :
+    runTypeCheck st (checkType (fuel + 1) k rho gamma .Size) = .ok ((), st) := rfl
+
+/-- **Theorem 12q (Universal Inversion of `checkType` on Dependent Function Types `.Pi`)**:
+    `checkType (fuel + 1) k rho gamma (.Pi x t1 t2)` succeeds iff `t1` is a valid type,
+    `t1` evaluates in `rho` to `v_t1`, and `t2` is a valid type in the extended environment. -/
+theorem checkType_pi_inv
+    (fuel k : Nat) (rho gamma : Env) (x : Name) (t1 t2 : Expr) (st st' : TCState)
+    (h : runTypeCheck st (checkType (fuel + 1) k rho gamma (.Pi x t1 t2)) = .ok ((), st')) :
+    ∃ st1 v_t1 st2,
+      runTypeCheck st (checkType fuel k rho gamma t1) = .ok ((), st1) ∧
+      runTypeCheck st1 (whnf fuel rho t1) = .ok (v_t1, st2) ∧
+      runTypeCheck st2 (checkType fuel (k + 1) (updateEnv rho x (.VGen k)) (updateEnv gamma x v_t1) t2) = .ok ((), st') := by
+  conv at h => lhs; unfold checkType
+  dsimp at h
+  rw [runTypeCheck_bind] at h
+  cases h1 : runTypeCheck st (checkType fuel k rho gamma t1) with
+  | error err => rw [h1] at h; contradiction
+  | ok res1 =>
+    rcases res1 with ⟨_, st1⟩
+    rw [h1] at h
+    dsimp at h
+    rw [runTypeCheck_bind] at h
+    cases hw : runTypeCheck st1 (whnf fuel rho t1) with
+    | error err => rw [hw] at h; contradiction
+    | ok res2 =>
+      rcases res2 with ⟨v_t1, st2⟩
+      rw [hw] at h
+      exact ⟨st1, v_t1, st2, rfl, hw, h⟩
+
+@[simp] theorem inferExpr_var (fuel k : Nat) (rho gamma : Env) (x : Name) (st : TCState) :
+    runTypeCheck st (inferExpr (fuel + 1) k rho gamma (.Var x)) =
+      runTypeCheck st (lookupEnv gamma x) := rfl
+
+@[simp] theorem inferExpr_infty (fuel k : Nat) (rho gamma : Env) (st : TCState) :
+    runTypeCheck st (inferExpr (fuel + 1) k rho gamma .Infty) = .ok (.VSize, st) := rfl
+
+@[simp] theorem checkExpr_succ_vsize (fuel k : Nat) (rho gamma : Env) (e2 : Expr) (st : TCState) :
+    runTypeCheck st (checkExpr (fuel + 1) k rho gamma (.Succ e2) .VSize) =
+      runTypeCheck st (checkExpr fuel k rho gamma e2 .VSize) := by
+  conv => lhs; unfold checkExpr
+
+/-- **Theorem 12r (Universal Inversion of `checkExpr` on Local `.LLet` Bindings)**:
+    `checkExpr (fuel + 1) k rho gamma (.LLet n t1 e1 e2) v` succeeds only if:
+    1. the annotation `t1` is a valid type (`checkType`),
+    2. the bound expression `e1` typechecks against `v_t1 = whnf rho t1`, and
+    3. the body `e2` typechecks against `v` in `rho[n ↦ whnf rho e1]` and `gamma[n ↦ v_t1]`. -/
+theorem checkExpr_llet_inv
+    (fuel k : Nat) (rho gamma : Env) (n : Name) (t1 e1 e2 : Expr) (v : TVal) (st st' : TCState)
+    (h : runTypeCheck st (checkExpr (fuel + 1) k rho gamma (.LLet n t1 e1 e2) v) = .ok ((), st')) :
+    ∃ st1 v_t1 st2 st3 v_e1 st4,
+      runTypeCheck st (checkType fuel k rho gamma t1) = .ok ((), st1) ∧
+      runTypeCheck st1 (whnf fuel rho t1) = .ok (v_t1, st2) ∧
+      runTypeCheck st2 (checkExpr fuel k rho gamma e1 v_t1) = .ok ((), st3) ∧
+      runTypeCheck st3 (whnf fuel rho e1) = .ok (v_e1, st4) ∧
+      runTypeCheck st4 (checkExpr fuel k (updateEnv rho n v_e1) (updateEnv gamma n v_t1) e2 v) = .ok ((), st') := by
+  conv at h => lhs; unfold checkExpr
+  dsimp at h
+  rw [runTypeCheck_bind] at h
+  cases h1 : runTypeCheck st (checkType fuel k rho gamma t1) with
+  | error err => rw [h1] at h; contradiction
+  | ok res1 =>
+    rcases res1 with ⟨_, st1⟩
+    rw [h1] at h
+    dsimp at h
+    rw [runTypeCheck_bind] at h
+    cases hw1 : runTypeCheck st1 (whnf fuel rho t1) with
+    | error err => rw [hw1] at h; contradiction
+    | ok res2 =>
+      rcases res2 with ⟨v_t1, st2⟩
+      rw [hw1] at h
+      dsimp at h
+      rw [runTypeCheck_bind] at h
+      cases hce1 : runTypeCheck st2 (checkExpr fuel k rho gamma e1 v_t1) with
+      | error err => rw [hce1] at h; contradiction
+      | ok res3 =>
+        rcases res3 with ⟨_, st3⟩
+        rw [hce1] at h
+        dsimp at h
+        rw [runTypeCheck_bind] at h
+        cases hw2 : runTypeCheck st3 (whnf fuel rho e1) with
+        | error err => rw [hw2] at h; contradiction
+        | ok res4 =>
+          rcases res4 with ⟨v_e1, st4⟩
+          rw [hw2] at h
+          exact ⟨st1, v_t1, st2, st3, v_e1, st4, rfl, hw1, hce1, hw2, h⟩
+
+/-- **Theorem 12s (Universal Bidirectional Subtyping Rule in `checkExpr` for Variables)**:
+    Checking a variable `.Var x` against expected type `v` infers its context type `v2`
+    from `gamma` and enforces subtyping `leqVal fuel k v2 v`. -/
+theorem checkExpr_var_inv
+    (fuel k : Nat) (rho gamma : Env) (x : Name) (v : TVal) (st st' : TCState)
+    (h : runTypeCheck st (checkExpr (fuel + 2) k rho gamma (.Var x) v) = .ok ((), st')) :
+    ∃ v2 st1,
+      runTypeCheck st (lookupEnv gamma x) = .ok (v2, st1) ∧
+      runTypeCheck st1 (leqVal (fuel + 1) k v2 v) = .ok ((), st') := by
+  conv at h => lhs; unfold checkExpr
+  dsimp at h
+  rw [runTypeCheck_bind] at h
+  rw [inferExpr_var] at h
+  cases hl : runTypeCheck st (lookupEnv gamma x) with
+  | error err => rw [hl] at h; contradiction
+  | ok res1 =>
+    rcases res1 with ⟨v2, st1⟩
+    rw [hl] at h
+    exact ⟨v2, st1, rfl, h⟩
 
 /-! ## 4. Matrix Order `ORDER_+` Semiring, Diagonal Witness & Ordinal Soundness (Pillars I & V) -/
 
@@ -940,6 +1594,37 @@ fun ack : NatPair -> Nat {
 
 theorem natpair_source_accepted :
     (checkSource natpairSource).isOk = true := by native_decide
+
+/-- **Verified Test 9 (End-to-End Overlapping-Clause Neutral Fallthrough Rejection — `examples/counterexamples/overlap_bug.ma`)**:
+    Proves that `bad (n : Nat) : Eq Bool (isz n) ff = refl Bool ff` (where `isz zero = tt; isz x = ff`)
+    is soundly **rejected** (`isOk = false`) because 3-valued `matchPat` returns `.stuck` on `.VGen 0`. -/
+def overlapBugSource : String := "
+data Nat : Set {
+  zero : Nat ;
+  succ : Nat -> Nat
+}
+
+data Bool : Set {
+  tt : Bool ;
+  ff : Bool
+}
+
+data Eq (A : Set) : A -> A -> Set {
+  refl : (a : A) -> Eq A a a
+}
+
+fun isz : Nat -> Bool {
+  isz zero = tt ;
+  isz x    = ff
+}
+
+fun bad : (n : Nat) -> Eq Bool (isz n) ff {
+  bad n = refl Bool ff
+}
+"
+
+theorem overlap_bug_rejected :
+    (checkSource overlapBugSource).isOk = false := by native_decide
 
 end VerificationSuite
 

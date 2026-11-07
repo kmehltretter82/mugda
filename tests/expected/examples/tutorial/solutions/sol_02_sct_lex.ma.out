@@ -1,0 +1,9 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+half4 evaluates to (succ (succ zero))
+even4 evaluates to tt
+lex_1_1 evaluates to (succ (succ (succ (succ zero))))
+--- stderr ---
+--- exit: 0 ---

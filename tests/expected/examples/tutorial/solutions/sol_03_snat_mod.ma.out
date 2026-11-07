@@ -1,0 +1,7 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+mod_7_3 evaluates to (succ # (zero #))
+--- stderr ---
+--- exit: 0 ---

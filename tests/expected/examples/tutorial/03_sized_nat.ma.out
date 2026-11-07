@@ -1,0 +1,9 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+two evaluates to (succ # (succ # (zero #)))
+three evaluates to (succ # (succ # (succ # (zero #))))
+gcd64 evaluates to (succ # (succ # (zero #)))
+--- stderr ---
+--- exit: 0 ---

@@ -1,0 +1,8 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+xor_tf evaluates to tt
+two_cubed evaluates to (succ (succ (succ (succ (succ (succ (succ (succ zero))))))))
+--- stderr ---
+--- exit: 0 ---

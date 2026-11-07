@@ -1,0 +1,10 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+--- evaluating ---
+doubled evaluates to (cons Nat # (succ (succ (succ (succ zero)))) (cons Nat # (succ (succ zero)) (cons Nat # (succ (succ (succ (succ (succ zero))))) (cons Nat # (succ zero) (cons Nat # (succ (succ (succ zero))) (nil Nat #))))))
+small evaluates to (cons Nat # (succ zero) (cons Nat # zero (cons Nat # (succ (succ zero)) (nil Nat #))))
+qsorted evaluates to (cons Nat # zero (cons Nat # (succ zero) (cons Nat # (succ (succ zero)) (cons Nat # (succ (succ (succ zero))) (cons Nat # (succ (succ (succ (succ zero)))) (nil Nat #))))))
+msorted evaluates to (cons Nat # zero (cons Nat # (succ zero) (cons Nat # (succ (succ zero)) (cons Nat # (succ (succ (succ zero))) (cons Nat # (succ (succ (succ (succ zero)))) (nil Nat #))))))
+--- stderr ---
+--- exit: 0 ---

@@ -1,0 +1,8 @@
+***** Mugda v1.0 (Constructive Lean 4 Edition) *****
+--- scope checking ---
+--- type checking ---
+Termination check fails
+--- evaluating ---
+diverge evaluates to (loop zero)
+--- stderr ---
+--- exit: 1 ---

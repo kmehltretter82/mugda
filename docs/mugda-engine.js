@@ -78,7 +78,8 @@
           s += input[i];
           adv();
         }
-        const type = KEYWORDS.has(s) ? s.toUpperCase() : 'IDENT';
+        // `const` is a synonym for `let`, as in Mugda/Core.lean (the 2008 Haskell lexer had no `const`).
+        const type = s === 'const' ? 'LET' : (KEYWORDS.has(s) ? s.toUpperCase() : 'IDENT');
         tokens.push({ type, val: s, line: tl, col: tc });
         continue;
       }
@@ -477,9 +478,9 @@
     }
 
     function checkClause(expectedName, c) {
-      if (c.fname !== expectedName) {
-        throw new Error(`clause identifier ${c.fname} mismatch (expected ${expectedName})`);
-      }
+      // Like the reference implementation (Parser.y discards it; so does Mugda/Core.lean), the
+      // identifier written at the start of a clause is not checked against the
+      // function name; clauses belong to the enclosing `fun`/`cofun` block.
       const { pats, bound } = checkPatterns(c.pats, []);
       const pats2 = pats.map(p => fillDots(bound, p));
       const rhs = checkExpr(bound, c.rhs);
@@ -599,6 +600,7 @@
   let currentSig = new Map();
   let evalStepCount = 0;
   let maxEvalSteps = 2000;
+  let currentMode = 'fixed';
 
   function whnf(env, e) {
     if (++evalStepCount > maxEvalSteps) {
@@ -632,46 +634,50 @@
 
   function matchPat(env, p, v0) {
     const v = (p.tag === 'ConP' && p.co === 'CoInd') ? force(v0) : v0;
-    if (p.tag === 'DotP') return env;
-    if (p.tag === 'VarP') return updateEnv(env, p.name, v);
+    if (p.tag === 'DotP') return { status: 'matched', env };
+    if (p.tag === 'VarP') return { status: 'matched', env: updateEnv(env, p.name, v) };
     if (p.tag === 'SuccP') {
       if (v.tag === 'VSucc') return matchPat(env, p.pat, v.val);
       if (v.tag === 'VInfty') return matchPat(env, p.pat, { tag: 'VInfty' });
-      return null;
+      return { status: 'stuck' };
     }
     if (p.tag === 'ConP') {
-      if (p.args.length === 0) {
-        if (v.tag === 'VCon' && v.name === p.name) return env;
-        return null;
+      if (v.tag === 'VCon') {
+        if (v.name !== p.name) return { status: 'mismatch' };
+        return p.args.length === 0 ? { status: 'matched', env } : { status: 'stuck' };
       }
-      if (v.tag === 'VApp' && v.head.tag === 'VCon' && v.head.name === p.name) {
+      if (v.tag === 'VApp' && v.head.tag === 'VCon') {
+        if (v.head.name !== p.name) return { status: 'mismatch' };
         return matchPats(env, p.args, v.args);
       }
-      return null;
+      return { status: 'stuck' };
     }
-    return null;
+    return { status: 'stuck' };
   }
 
   function matchPats(env, pats, vals) {
-    if (pats.length !== vals.length) return null;
+    if (pats.length !== vals.length) return { status: 'stuck' };
     let cur = env;
     for (let i = 0; i < pats.length; i++) {
-      cur = matchPat(cur, pats[i], vals[i]);
-      if (!cur) return null;
+      const r = matchPat(cur, pats[i], vals[i]);
+      if (r.status !== 'matched') return r;
+      cur = r.env;
     }
-    return cur;
+    return { status: 'matched', env: cur };
   }
 
   function matchClauses(clauses, vals) {
     for (const cl of clauses) {
-      if (vals.length >= cl.pats.length) {
-        const used = vals.slice(0, cl.pats.length);
-        const rest = vals.slice(cl.pats.length);
-        const env = matchPats([], cl.pats, used);
-        if (env !== null) {
-          const r = whnf(env, cl.rhs);
-          return vapps(r, rest);
-        }
+      if (vals.length < cl.pats.length) return null;
+      const used = vals.slice(0, cl.pats.length);
+      const rest = vals.slice(cl.pats.length);
+      const r = matchPats([], cl.pats, used);
+      if (r.status === 'matched') {
+        const rhsVal = whnf(r.env, cl.rhs);
+        return vapps(rhsVal, rest);
+      }
+      if (r.status === 'stuck' && currentMode !== '2008') {
+        return null;
       }
     }
     return null;
@@ -800,7 +806,9 @@
   // 5. OCCURS CHECK (nocc) & STRICT POSITIVITY (SPos)
   // =========================================================================
   function nocc(k, target, v) {
-    const vf = force(v);
+    // No forcing here: like SPos.hs / Mugda/Core.lean `nocc`, the occurs check
+    // inspects the value as is (forcing could unfold a coinductive value forever).
+    const vf = v;
     if (valEqualSyntactic(target, vf)) return false;
     switch (vf.tag) {
       case 'VSucc':
@@ -822,7 +830,7 @@
   }
 
   function spos(k, target, v) {
-    const vf = force(v);
+    const vf = v; // no forcing, cf. Mugda/Core.lean `spos`
     if (valEqualSyntactic(vf, target)) return true;
     if (vf.tag === 'VPi') {
       if (!nocc(k, target, vf.dom)) return false;
@@ -1293,6 +1301,7 @@
 
   function runProgram(source, options = {}) {
     const mode = options.mode || 'fixed';
+    currentMode = mode;
     maxEvalSteps = options.maxEvalSteps || 15000;
     evalStepCount = 0;
     currentSig = new Map();
