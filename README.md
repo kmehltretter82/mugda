@@ -52,7 +52,7 @@ make
 ./Main examples/counterexamples/cody_simplified.ma
 ./Main examples/counterexamples/cody_nowraps.ma
 ./Main examples/counterexamples/snat_mat_bug.ma
-./Main examples/counterexamples/tree_mat_bug.ma
+./Main examples/counterexamples/stree_mat_bug.ma
 ./Main examples/counterexamples/llet_bug.ma
 ```
 

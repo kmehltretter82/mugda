@@ -57,3 +57,4 @@ fun deep : (i : Size) -> O i -> Nat
 }
 
 let loop_term : O # = M # (L # emb) (emb three)
+eval let diverge : Nat = deep # loop_term

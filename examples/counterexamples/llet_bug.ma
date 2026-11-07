@@ -17,3 +17,5 @@ data Nat : Set
 fun loop : Nat -> Nat
 { loop x = let y : Nat = loop x in y
 }
+
+eval let diverge : Nat = loop zero

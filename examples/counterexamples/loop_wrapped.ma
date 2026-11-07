@@ -62,4 +62,4 @@ mutual
   }
 }
 
-let start : Unit = loop # (zero #) (wrap (Nat -> Maybe Nat) # inc)
+eval let start : Unit = loop # (zero #) (wrap (Nat -> Maybe Nat) # inc)

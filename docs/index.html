@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mugda Playground — Sized Types &amp; Size-Change Termination in Your Browser</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-alt: #162032;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --code-bg: #0b1120;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.18rem 0.55rem;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      font-weight: 600;
+    }
+    .brand p {
+      margin: 0.25rem 0 0;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+    }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 0.42rem 0.8rem;
+      border-radius: 0.45rem;
+      font-size: 0.84rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .nav-links a:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    main {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 3rem;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 0.8rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .toolbar-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    select, button {
+      font-family: inherit;
+      font-size: 0.88rem;
+      border-radius: 0.45rem;
+      padding: 0.45rem 0.8rem;
+      border: 1px solid var(--border);
+      background: var(--code-bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    select { min-width: 290px; }
+    .btn-primary {
+      background: var(--accent);
+      color: #082f49;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: #334155;
+      color: var(--text);
+      font-weight: 600;
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+    .mode-switch {
+      display: inline-flex;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.45rem;
+      overflow: hidden;
+    }
+    .mode-switch button {
+      border: none;
+      border-radius: 0;
+      padding: 0.42rem 0.85rem;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.83rem;
+    }
+    .mode-switch button.active-fixed {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+    }
+    .mode-switch button.active-2008 {
+      background: rgba(245, 158, 11, 0.22);
+      color: #fbbf24;
+    }
+    .example-desc {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 0.85rem;
+      padding: 0.55rem 0.9rem;
+      background: rgba(30, 41, 59, 0.6);
+      border-left: 3px solid var(--accent);
+      border-radius: 0.25rem;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: 1.12fr 0.88fr;
+      gap: 1.15rem;
+      align-items: stretch;
+    }
+    @media (max-width: 1024px) {
+      .workspace { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 0.65rem 1rem;
+      background: var(--panel-alt);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    #editor {
+      width: 100%;
+      min-height: 490px;
+      flex: 1;
+      background: var(--code-bg);
+      color: #f8fafc;
+      border: none;
+      padding: 1rem;
+      font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 0.86rem;
+      line-height: 1.52;
+      resize: vertical;
+      outline: none;
+      tab-size: 2;
+    }
+    #output {
+      margin: 0;
+      padding: 1rem;
+      min-height: 270px;
+      max-height: 360px;
+      overflow-y: auto;
+      background: var(--code-bg);
+      font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 0.83rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .status-pill {
+      font-size: 0.76rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .status-ok { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
+    .status-warn { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .status-err { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .matrices-box {
+      padding: 0.85rem 1rem;
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      max-height: 220px;
+      overflow-y: auto;
+      font-size: 0.82rem;
+    }
+    .matrix-chip {
+      display: inline-block;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.4rem;
+      padding: 0.35rem 0.65rem;
+      margin: 0.25rem 0.35rem 0.25rem 0;
+      font-family: monospace;
+    }
+    .docs-section {
+      margin-top: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+    @media (max-width: 1024px) {
+      .docs-section { grid-template-columns: 1fr; }
+    }
+    .docs-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      padding: 1.25rem 1.4rem;
+    }
+    .docs-card h2 {
+      margin-top: 0;
+      font-size: 1.12rem;
+      color: var(--accent);
+    }
+    .docs-card h3 {
+      font-size: 0.96rem;
+      margin: 1rem 0 0.4rem;
+    }
+    .docs-card p, .docs-card li {
+      font-size: 0.88rem;
+      color: #cbd5e1;
+    }
+    code {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.82rem;
+      background: rgba(15, 23, 42, 0.75);
+      padding: 0.12rem 0.35rem;
+      border-radius: 0.25rem;
+      color: #7dd3fc;
+    }
+    table.eval-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.75rem;
+      font-size: 0.82rem;
+    }
+    table.eval-table th, table.eval-table td {
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.65rem;
+      text-align: left;
+    }
+    table.eval-table th {
+      background: var(--panel-alt);
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>
+        Mugda Interactive Playground
+        <span class="badge">LMU Munich 2007/2008 &bull; Bug-Fixed &amp; Lean 4 Verified</span>
+      </h1>
+      <p>Dependently Typed Pattern Matching + Size-Change Termination + Explicit <code>Size</code> Types &amp; Subtyping (Karl Mehltretter)</p>
+    </div>
+    <nav class="nav-links">
+      <a href="https://github.com/kmehltretter82/mugda" target="_blank">GitHub Repo</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/doc/da/da.pdf" target="_blank">Diploma Thesis (PDF)</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/BUG_REVIEW.md" target="_blank">Complete Bug Review</a>
+      <a href="https://github.com/kmehltretter82/mugda/blob/main/formalization/MugdaSoundness.lean" target="_blank">Lean 4 Soundness Proof</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <label for="example-select">Program:</label>
+        <select id="example-select"></select>
+      </div>
+      <div class="toolbar-group">
+        <label>Engine Semantics:</label>
+        <div class="mode-switch">
+          <button id="mode-fixed" class="active-fixed" type="button">Bug-Fixed (2026)</button>
+          <button id="mode-2008" type="button">Original Thesis (2008)</button>
+        </div>
+        <button id="run-btn" class="btn-primary" type="button">&#9654; Typecheck &amp; Evaluate</button>
+        <button id="compare-btn" class="btn-secondary" type="button">&#8644; Compare 2008 vs Fixed</button>
+      </div>
+    </div>
+
+    <div id="example-desc" class="example-desc"></div>
+
+    <div class="workspace">
+      <div class="card">
+        <div class="card-header">
+          <span>Mugda Source Editor (<code>.ma</code>)</span>
+          <span style="color: var(--muted); font-weight: 400;">Syntax: <code>$ i</code> = size succ, <code>#</code> = &infin;, <code>.e</code> = dot pattern</span>
+        </div>
+        <textarea id="editor" spellcheck="false"></textarea>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span>Console Output &amp; Diagnostics</span>
+          <span id="status-pill" class="status-pill status-ok">Ready</span>
+        </div>
+        <pre id="output"></pre>
+        <div class="card-header" style="border-top: 1px solid var(--border);">
+          <span>Extracted Size-Change Call Matrices</span>
+          <span style="color: var(--muted); font-weight: 400;"><code>&lt;</code> strict decrease, <code>&lt;=</code> weak, <code>?</code> unknown</span>
+        </div>
+        <div id="matrices" class="matrices-box"></div>
+      </div>
+    </div>
+
+    <section class="docs-section">
+      <div class="docs-card">
+        <h2>Quick Tutorial: Mugda Syntax &amp; Sized Types</h2>
+        <p>
+          Mugda extends Martin-L&ouml;f dependent type theory with a primitive <code>Size</code> type,
+          size successor <code>$ i</code>, limit/closure size <code>#</code> (&infin;, satisfying <code>$ # = #</code>),
+          and Coquand-style dependent pattern matching with inaccessible dot patterns <code>.e</code>.
+        </p>
+        <h3>1. Sized Inductive &amp; Coinductive Types</h3>
+        <ul>
+          <li>
+            <strong>Inductive upper bounds (<code>sized data</code>):</strong>
+            Every constructor takes <code>(i : Size)</code> as its first index, recursive arguments at size <code>i</code>,
+            and returns size <code>($ i)</code>. Subtyping is covariant: <code>SNat i &le; SNat ($ i) &le; SNat #</code>.
+          </li>
+          <li>
+            <strong>Coinductive lower bounds (<code>sized codata</code>):</strong>
+            Productive streams are defined via <code>cofun</code> matching <code>($ i)</code> on the left and constructing
+            <code>cons i head (self i)</code> on the right. Subtyping is contravariant: <code>Stream # &le; Stream ($ i) &le; Stream i</code>.
+          </li>
+        </ul>
+        <h3>2. The Pattern-Refinement Invariant (What Broke in 2008 &amp; How It Is Fixed)</h3>
+        <p>
+          In the transfinite ordinal semantics <code>&llbracket;D u &alpha;&rrbracket; = &cup;_{&beta; &lt; &alpha;} F(&llbracket;D u &beta;&rrbracket;)</code>,
+          matching a value of type <code>D u &alpha;</code> against a constructor targeting <code>D u ($ &beta;)</code>
+          only justifies the inequality <code>$ &beta; &le; &alpha;</code>, <strong>not</strong> the equality <code>&alpha; = $ &beta;</code>.
+        </p>
+        <p>
+          When <code>&alpha;</code> is a limit ordinal like <code>&omega;</code> (e.g. <code>L # emb</code> in
+          <code>cody_nowraps.ma</code> and <code>cody_simplified.ma</code>), refining a shared size variable across
+          two sibling branches of a constructor or into an earlier variable's type is unsound.
+          The bug-fixed engine enforces the <strong>Pattern-Refinement Invariant</strong> (<code>checkNoccEnv</code> + <code>checkNoccDomains</code>):
+          a flexible size variable refined to <code>$ s</code> may only appear in the monotone return type of the clause!
+        </p>
+      </div>
+
+      <div class="docs-card">
+        <h2>Systematic Evaluation of Expressiveness</h2>
+        <p>
+          How do structural recursion, Size-Change Termination (SCT), and explicit <code>Size</code> types compare across Mugda's benchmark suite?
+        </p>
+        <table class="eval-table">
+          <thead>
+            <tr>
+              <th>Benchmark</th>
+              <th>Struct.</th>
+              <th>SCT</th>
+              <th>SCT + <code>Size</code></th>
+              <th>Key Mechanism</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Permuted <code>add2</code> / Mutual <code>even</code>-<code>odd</code></td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td>&#9989;</td>
+              <td>Off-diagonal call matrix completion (0 annotations)</td>
+            </tr>
+            <tr>
+              <td>Pair addition <code>addpair</code> (<code>natpair.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#9989; (<code>ORDER_+</code>)</td>
+              <td>&#9989;</td>
+              <td>Nested constructor matrix on pure data</td>
+            </tr>
+            <tr>
+              <td>Euclidean <code>div</code> &amp; <code>gcd</code> (<code>snat.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td>Upper-bound preservation <code>minus : SNat i &rarr; SNat # &rarr; SNat i</code></td>
+            </tr>
+            <tr>
+              <td>Quicksort &amp; Mergesort (<code>sqsort.ma</code>, <code>slist.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td><code>pivot</code> / <code>split</code> preserve <code>SList A i</code> via subtyping</td>
+            </tr>
+            <tr>
+              <td>Rose-tree <code>flat</code> via <code>mapL</code> (<code>stree.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td>Higher-order <code>mapL # ... (flat i A)</code> decreases <code>i &lt; $ i</code></td>
+            </tr>
+            <tr>
+              <td>Permuted higher-order <code>addWith</code> (<code>addWith.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td>Requires <em>both</em> SCT permutation and size-preserving <code>f</code></td>
+            </tr>
+            <tr>
+              <td>Stream processor <code>eat</code> (<code>sp.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#9989;</td>
+              <td>Unguarded CPS corecursion inside <code>ieat</code></td>
+            </tr>
+            <tr>
+              <td>Limit-ordinal sibling match (<code>cody_nowraps.ma</code>)</td>
+              <td>&#10060;</td>
+              <td>&#10060;</td>
+              <td>&#128683; Rejected</td>
+              <td>Violates Pattern-Refinement Invariant at &omega;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="mugda-engine.js"></script>
+  <script src="examples-bundle.js"></script>
+  <script>
+    (function () {
+      const select = document.getElementById('example-select');
+      const editor = document.getElementById('editor');
+      const output = document.getElementById('output');
+      const matrices = document.getElementById('matrices');
+      const desc = document.getElementById('example-desc');
+      const pill = document.getElementById('status-pill');
+      const btnFixed = document.getElementById('mode-fixed');
+      const btn2008 = document.getElementById('mode-2008');
+      const runBtn = document.getElementById('run-btn');
+      const compareBtn = document.getElementById('compare-btn');
+
+      let currentMode = 'fixed';
+      const byId = new Map();
+
+      function populateDropdown() {
+        const posGroup = document.createElement('optgroup');
+        posGroup.label = 'Positive Examples (Valid Termination & Productivity)';
+        for (const item of window.MUGDA_EXAMPLES.positive) {
+          byId.set(item.id, item);
+          const opt = document.createElement('option');
+          opt.value = item.id;
+          opt.textContent = item.title;
+          posGroup.appendChild(opt);
+        }
+        const ceGroup = document.createElement('optgroup');
+        ceGroup.label = 'Counterexamples (Pass 2008 Engine, Caught by Bug-Fixed Engine)';
+        for (const item of window.MUGDA_EXAMPLES.counterexamples) {
+          byId.set(item.id, item);
+          const opt = document.createElement('option');
+          opt.value = item.id;
+          opt.textContent = item.title;
+          ceGroup.appendChild(opt);
+        }
+        select.appendChild(posGroup);
+        select.appendChild(ceGroup);
+      }
+
+      function renderCallMatrices(list) {
+        if (!list || list.length === 0) {
+          matrices.innerHTML = '<span style="color: var(--muted);">No recursive call matrices extracted.</span>';
+          return;
+        }
+        matrices.innerHTML = list.map(cm => {
+          const rows = cm.matrix.map(r => r.join('  ')).join(' ; ');
+          return `<span class="matrix-chip"><strong>${cm.caller} &rarr; ${cm.callee}</strong>: ( ${rows} )</span>`;
+        }).join('');
+      }
+
+      function runCurrent() {
+        const src = editor.value;
+        try {
+          const res = window.MugdaEngine.runProgram(src, { mode: currentMode, maxEvalSteps: 4000 });
+          output.textContent = res.output;
+          renderCallMatrices(res.callMatrices);
+          if (res.ok) {
+            pill.className = 'status-pill status-ok';
+            pill.textContent = currentMode === 'fixed' ? 'Accepted (Bug-Fixed)' : 'Accepted (2008 Mode)';
+          } else {
+            pill.className = 'status-pill status-warn';
+            pill.textContent = `Rejected (${res.diagnostics.length} diagnostic${res.diagnostics.length > 1 ? 's' : ''})`;
+          }
+        } catch (err) {
+          output.textContent = `***** Mugda v1.0 (${currentMode === 'fixed' ? 'Bug-Fixed' : 'Original 2008'}) *****\n` + err.message;
+          matrices.innerHTML = '<span style="color: var(--muted);">Stopped before termination phase.</span>';
+          pill.className = 'status-pill status-err';
+          pill.textContent = err.message.includes('Non-termination') ? 'Diverged (Infinite Loop!)' : 'Rejected (Type Error)';
+        }
+      }
+
+      function compareBoth() {
+        const src = editor.value;
+        const lines = [];
+        for (const m of ['2008', 'fixed']) {
+          const label = m === '2008' ? '=== ORIGINAL 2008 MUGDA ===' : '=== BUG-FIXED MUGDA (2026) ===';
+          lines.push(label);
+          try {
+            const res = window.MugdaEngine.runProgram(src, { mode: m, maxEvalSteps: 4000 });
+            lines.push(res.output);
+            if (m === 'fixed') renderCallMatrices(res.callMatrices);
+          } catch (err) {
+            lines.push(err.message);
+          }
+          lines.push('');
+        }
+        output.textContent = lines.join('\n');
+        pill.className = 'status-pill status-ok';
+        pill.textContent = 'Side-by-Side Comparison';
+      }
+
+      select.addEventListener('change', () => {
+        const item = byId.get(select.value);
+        if (item) {
+          editor.value = item.code;
+          desc.innerHTML = `<strong>${item.title}</strong> (${item.path}) &mdash; ${item.desc}`;
+          runCurrent();
+        }
+      });
+
+      btnFixed.addEventListener('click', () => {
+        currentMode = 'fixed';
+        btnFixed.className = 'active-fixed';
+        btn2008.className = '';
+        runCurrent();
+      });
+
+      btn2008.addEventListener('click', () => {
+        currentMode = '2008';
+        btn2008.className = 'active-2008';
+        btnFixed.className = '';
+        runCurrent();
+      });
+
+      runBtn.addEventListener('click', runCurrent);
+      compareBtn.addEventListener('click', compareBoth);
+
+      populateDropdown();
+      select.value = 'snat';
+      select.dispatchEvent(new Event('change'));
+    })();
+  </script>
+</body>
+</html>
