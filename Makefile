@@ -1,19 +1,14 @@
-# Makefile for miniagda
+GHC ?= ghc
 
-files=Lexer Parser Abstract ScopeChecker TypeChecker Value Termination SPos Completness Concrete
-hsfiles=$(foreach file,$(files),$(file).hs)
-ghcflags=
+all : Main
 
-default : Main
+Main : Tokens.hs Lexer.hs Parser.hs Abstract.hs Concrete.hs SPos.hs ScopeChecker.hs TraceError.hs TypeChecker.hs Value.hs Termination.hs Completness.hs Main.hs
+	$(GHC) --make Main.hs -o Main
 
-Main : Main.hs $(hsfiles)
-	ghc $(ghcflags) $< --make -o $@
+# Optional regeneration with Alex and Happy if installed
+lexer-parser : Lexer.x Parser.y
+	alex Lexer.x
+	happy Parser.y
 
-Lexer.hs : Lexer.x
-	alex $<
-
-Parser.hs : Parser.y Lexer.hs
-	happy $<
-
-
-# EOF
+clean :
+	rm -f *.o *.hi Control/Monad/*.o Control/Monad/*.hi Main mugda

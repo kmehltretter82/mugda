@@ -5,7 +5,7 @@ import Data.List as List
 import qualified Data.Set as Set
 import Debug.Trace
 
-import System
+import System.Environment (getArgs)
 
 
 data Order = Lt

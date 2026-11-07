@@ -143,7 +143,7 @@ app u c = do
 
 -- unroll a corecursive definition one time (until constructor appears)
 force :: Val -> TypeCheck Val
-force v@ (VDef n) = --trace ("force " ++ show v) $
+force v@(VDef n) = --trace ("force " ++ show v) $
     do sig <- get
        case lookupSig n sig of
          (FunSig CoInd t cl True) -> do m <- matchClauses cl []

@@ -10,7 +10,7 @@ import ScopeChecker
 import TypeChecker
 import Value
 
-import System
+import System.Environment (getArgs)
 
 import System.IO (stdout, hSetBuffering, BufferMode(..))
 
