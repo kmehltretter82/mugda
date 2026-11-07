@@ -1,0 +1,218 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\geometry{margin=2.4cm}
+
+\newcommand{\llbracket}{[\![}
+\newcommand{\rrbracket}{]\!]}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{invariant}[theorem]{Invariant}
+\newtheorem{remark}[theorem]{Remark}
+
+\lstdefinelanguage{Mugda}{
+  keywords={sized,data,codata,fun,cofun,let,const,in,eval,mutual,Set,Size},
+  sensitive=true,
+  morecomment=[l]{--},
+  morecomment=[s]{\{-}{-\}},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\bfseries\color{blue!70!black},
+  commentstyle=\itshape\color{gray!70!black},
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  rulecolor=\color{gray!40}
+}
+
+\title{\textbf{Mugda Revisited: Sized Types, Size-Change Termination,\\and the Pattern-Refinement Invariant in Lean 4}}
+\author{Karl Mehltretter\\
+\small Original Diploma Thesis: LMU Munich, December 2007 / April 2008 (Advisor: Andreas Abel)\\
+\small Constructive Lean 4 Formalization \& Metatheory, 2026\\
+\small \url{https://github.com/kmehltretter82/mugda}}
+\date{2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\textbf{Mugda} (2007/2008) was, to our knowledge, the first implemented proof assistant to combine
+\emph{Martin-L\"of dependent type theory} and Coquand-style \emph{dependent pattern matching} with
+\emph{Lee--Jones--Ben-Amram Size-Change Termination (SCT)} (including the nested matrix semiring $\mathsf{ORDER}_+$)
+and \emph{explicit $\mathsf{Size}$ indices} (\texttt{\$ i} for size successor and \texttt{\#} for the closure ordinal $\infty$)
+to check both \emph{termination} of inductive definitions (\texttt{fun}) and \emph{productivity} of corecursive definitions (\texttt{cofun}).
+
+Eighteen years later, we revisit Mugda through the lens of transfinite ordinal semantics and machine-checked formalization in \textbf{Lean~4}.
+First, we conduct a complete audit of the 2007/2008 system, identifying six soundness and completeness bugs in the interaction between dependent pattern unification, size subtyping, $\mathsf{ORDER}_+$ matrix comparison, and runtime size erasure.
+Second, we isolate why naive pattern unification on size indices fails at limit ordinals ($\omega, \omega + 2$): matching $x : \mathsf{D}\;\vec{u}\;\alpha$ against a constructor of target type $\mathsf{D}\;\vec{u}\;(\$ i)$ justifies only the \emph{existential ordinal inequality} $\exists \beta < \alpha,\; \$ \beta \le \alpha$, and \emph{not} the syntactic equality $\alpha = \$ \beta$.
+Third, we formulate and prove the \textbf{Pattern-Refinement Invariant} (\texttt{checkNoccEnv} + \texttt{checkNoccDomains} + parameter \texttt{nocc}), showing that substituting $\alpha \mapsto \$ \beta$ during pattern checking is sound across all transfinite ordinals if and only if the refined size variable occurs only in the covariant return type after matching.
+Finally, we port the entire Mugda compiler into the \emph{pure constructive subset of Lean~4} (\texttt{Mugda/Core.lean}, with zero \texttt{partial}, zero \texttt{unsafe}, and zero \texttt{sorry}) and verify over 30 semantic and in-place algorithmic metatheorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
+\end{abstract}
+
+\section{Introduction}
+
+Single-argument syntactic guard conditions reject many natural recursive and corecursive programs:
+\begin{enumerate}
+  \item functions that \emph{permute arguments} (\texttt{add2 x (succ y) = succ (add2 y x)}) or descend lexicographically on nested tuples (\texttt{ack (Pair (succ x) (succ y))}, \texttt{addpair}),
+  \item functions that recur on the result of a \emph{size-preserving helper} (Euclidean \texttt{div} and \texttt{gcd} via \texttt{sub}, \texttt{quicksort} via \texttt{pivot}, \texttt{mergesort} via \texttt{split}),
+  \item functions that pass a \emph{partially applied recursive call} to a higher-order combinator (\texttt{flat} on rose trees via \texttt{mapL}), and
+  \item \emph{corecursive stream and stream-processor definitions} (\texttt{fib}, \texttt{eat}/\texttt{ieat}) where corecursive calls occur under continuations or mutually recursive helpers.
+\end{enumerate}
+
+Mugda (Mehltretter, 2007/2008~\cite{mehltretter2007}) unified these paradigms by combining:
+\begin{itemize}
+  \item \textbf{Syntactic Size-Change Termination in $\mathsf{ORDER}_+$~\cite{lee2001}:} Call extraction constructs call matrices over the recursive order algebra
+  \[
+    o \in \mathsf{Order} ::= {<} \;\mid\; {\le} \;\mid\; {?} \;\mid\; \mathsf{Mat}(\mathsf{Matrix}\;\mathsf{Order}),
+  \]
+  computes the idempotent closure under matrix multiplication, and checks that every idempotent call $M = M \cdot M$ has a strictly decreasing diagonal entry (\texttt{isDecr}).
+  \item \textbf{Type-Based Termination and Productivity via $\mathsf{Size}$~\cite{abel2006,abel2010}:} Sized inductive families $\mathsf{D}\;\vec{u}\;\alpha$ are covariant in $\alpha$ ($\alpha \le \$ \alpha \le \#$), whereas sized coinductive families $\mathsf{C}\;\vec{u}\;\alpha$ are contravariant in $\alpha$ ($\# \le \$ \alpha \le \alpha$).
+\end{itemize}
+
+\section{Transfinite Ordinal Semantics and the Limit-Ordinal Gap}
+
+\subsection{Cumulative Ordinal Interpretation}
+
+In our Lean~4 formalization (\texttt{Mugda/Soundness.lean}), transfinite size ordinals below $\omega \cdot 2$ are represented by the inductive type $\mathsf{SizeOrd}$ with constructors $\mathsf{fin}(n)$ ($n \in \mathbb{N}$) and $\mathsf{omegaPlus}(k)$ ($\omega + k$), extended with the top closure ordinal $\# = \infty$ in $\mathsf{ExtSize}$.
+Successor on $\mathsf{ExtSize}$ satisfies $\$ \infty = \infty$ (\texttt{succ\_infty} and \texttt{sinfty\_infty}).
+
+For a monotone operator $F_{\mathsf{D}}$ and a coinductive operator $F_{\mathsf{C}}$, the semantic interpretations at ordinal $\alpha$ are:
+\[
+  \llbracket \mathsf{D}\;\vec{u}\;\alpha \rrbracket = \bigcup_{\beta < \alpha} F_{\mathsf{D}}\!\left(\vec{u},\; \llbracket \mathsf{D}\;\vec{u}\;\beta \rrbracket\right),
+  \qquad
+  \llbracket \mathsf{C}\;\vec{u}\;\alpha \rrbracket = \bigcap_{\beta < \alpha} F_{\mathsf{C}}\!\left(\vec{u},\; \llbracket \mathsf{C}\;\vec{u}\;\beta \rrbracket\right).
+\]
+At the closure ordinal $\infty$, the inductive interpretation stabilizes as a fixed point:
+$\llbracket \mathsf{D}\;\vec{u}\;(\$ \infty) \rrbracket = \llbracket \mathsf{D}\;\vec{u}\;\infty \rrbracket$ (proved in \texttt{inOExt\_S\_iff}).
+Because Mugda enforces $\infty \not\le \alpha$ for every generic size variable $\alpha$ (\texttt{leqSize VInfty (VGen k) = error}), it avoids the $\infty < \infty$ inconsistency.
+
+\subsection{Why Naive Pattern Unification Fails at Limit Ordinals}
+
+Every constructor $c$ of a sized inductive family $\mathsf{D}$ has a target type of the form $\mathsf{D}\;\vec{u}\;(\$ i)$.
+When checking a pattern $c\,i\,\vec{y}$ against an expected domain $\mathsf{D}\;\vec{u}\;\alpha$, Mugda's pattern unifier \texttt{inst} unifies $\alpha$ with $\$ i$, yielding the substitution $\sigma = [\alpha \mapsto \$ i]$.
+
+In 2008 Mugda, $\sigma$ was applied globally across the context $\Gamma$, the remaining argument telescope $\Delta$, and the return type $R(\alpha)$.
+However, in the ordinal semantics, $x \in \llbracket \mathsf{D}\;\vec{u}\;\alpha \rrbracket$ guarantees only:
+\[
+  \exists \beta < \alpha,\quad x \in F_{\mathsf{D}}\!\left(\vec{u},\; \llbracket \mathsf{D}\;\vec{u}\;\beta \rrbracket\right)
+  \quad\text{where}\quad \beta < \alpha \implies \$ \beta \le \alpha.
+\]
+When $\alpha$ is a limit ordinal (e.g.\ $\omega = \mathsf{omegaPlus}(0)$, proved to have no predecessor in \texttt{omega\_is\_limit}), $\alpha \neq \$ \beta$ for all $\beta$.
+This gap between the true inequality $\$ \beta \le \alpha$ and the syntactic substitution $\alpha := \$ \beta$ causes two distinct soundness failures:
+
+\begin{enumerate}
+  \item \textbf{Deep Sibling Synchronization at $\alpha = \omega + 2$ (Bug 1a, \texttt{cody\_simplified.ma}~\cite{roux2016}):}
+  For the Brouwer ordinal type $\mathsf{O} : \mathsf{Size} \to \mathsf{Set}$ with constructors $\mathsf{Z}, \mathsf{S}, \mathsf{L}, \mathsf{M}$, consider at $\alpha = \omega + 2$:
+  \[
+    t = \mathsf{M}\;(\omega + 1)\;\underbrace{(\mathsf{L}\;\omega\;(\lambda n.\,\mathsf{S}^n\,\mathsf{Z}))}_{\in \llbracket \mathsf{O}\;(\omega + 1) \rrbracket,\; \text{witness } \beta_1 = \omega}\;\underbrace{(\mathsf{S}\;1\;(\mathsf{S}\;0\;\mathsf{Z}))}_{\in \llbracket \mathsf{O}\;2 \rrbracket \subseteq \llbracket \mathsf{O}\;(\omega + 1) \rrbracket,\; \text{witness } \beta_2 = 1}.
+  \]
+  Although $t \in \llbracket \mathsf{O}\;(\omega + 2) \rrbracket$, matching both children against the deep pattern
+  \texttt{M .(\$ (\$ i)) (L .(\$ i) f) (S .(\$ i) (S i z))} forces $\beta_1 = \omega$ to equal $\$ i$ for some $i$, which is false (\textbf{Theorem \texttt{unguarded\_deep\_match\_unsound}} in \texttt{Mugda/Soundness.lean}).
+
+  \item \textbf{Retroactive Context Refinement and Parameter Smuggling (Bug 1b \& Bug 2, \texttt{loop\_wrapped.ma}):}
+  If a previous hypothesis in $\Gamma$ has type $f : \mathsf{SNat}\;j \to \bot$ (or is wrapped inside a strictly positive parameter of $\mathsf{Wrap}\;(+ A : \mathsf{Set}) : \mathsf{Size} \to \mathsf{Set}$), matching a subsequent argument $x : \mathsf{SNat}\;j$ against $\mathsf{succ}\;i\;y$ refines $j \mapsto \$ i$ inside $\Gamma$, upgrading $f$ from $\mathsf{SNat}\;j \to \bot$ to $\mathsf{SNat}\;(\$ i) \to \bot$ (\textbf{Theorems \texttt{checkNoccEnv\_tightness} and \texttt{wrap\_not\_covariant\_without\_nocc}}).
+\end{enumerate}
+
+\section{The Pattern-Refinement Invariant}
+
+\begin{invariant}[Pattern-Refinement Invariant]
+Whenever pattern unification refines a generic size variable $j$ to a successor term $\$ v$ (\texttt{isNewSuccRefinement}) while checking pattern $p$ against domain $A$ in context $\Gamma$ with remaining telescope $\Delta \to R$:
+\begin{enumerate}
+  \item \textbf{Context Non-Occurrence (\texttt{checkNoccEnv}):} $j$ does not occur free in any type in $\Gamma$.
+  \item \textbf{Remaining Domain Non-Occurrence (\texttt{checkNoccDomains}):} $j$ does not occur free in any domain of $\Delta$ (including remaining constructor argument domains).
+  \item \textbf{Parameter Non-Occurrence (\texttt{szUsed'} / \texttt{szSizeVarTarget}):} In every sized datatype constructor and admissible function signature, the size variable does not occur in any datatype parameter \texttt{rargs}.
+\end{enumerate}
+\end{invariant}
+
+\begin{theorem}[Soundness and Tightness of the Pattern-Refinement Invariant]
+Under the Pattern-Refinement Invariant, after matching $p$, the refined size variable $j$ occurs only in the return type $R(j)$, which by function admissibility (\texttt{szCheckIndFun}) is covariant in $j$.
+For every ordinal $\alpha$ and every witness $\beta < \alpha$, since $\$ \beta \le \alpha$ and $R$ is monotone:
+\[
+  \llbracket R(\$ \beta) \rrbracket \subseteq \llbracket R(\alpha) \rrbracket.
+\]
+Hence proving $R(\$ \beta)$ for the constructor's subterms soundly establishes $R(\alpha)$ across all successor and limit ordinals (\textbf{Theorems \texttt{fixed\_pattern\_refinement\_sound}, \texttt{multi\_arg\_pattern\_refinement\_sound}, and \texttt{sized\_recursion\_terminates}}).
+Conversely, dropping any of (1), (2), or (3) admits a formal counterexample (\textbf{Theorems \texttt{checkNoccEnv\_tightness}, \texttt{unguarded\_deep\_match\_unsound}, and \texttt{wrap\_not\_covariant\_without\_nocc}}).
+\end{theorem}
+
+\section{Algorithmic Verification in Constructive Lean 4}
+
+The entire Mugda compiler is implemented in the pure constructive subset of Lean~4 in \texttt{Mugda/Core.lean} (zero \texttt{partial}, zero \texttt{unsafe}, zero \texttt{sorry}).
+Table~\ref{tab:theorems} summarizes the primary machine-checked metatheorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Module} & \textbf{Lean 4 Theorem} & \textbf{Verified Property} \\
+\midrule
+\texttt{Soundness} & \texttt{unguarded\_deep\_match\_unsound} & Limit-ordinal refutation of Bug 1a at $\omega + 2$ \\
+\texttt{Soundness} & \texttt{fixed\_pattern\_refinement\_sound} & Single-arg Pattern-Refinement soundness \\
+\texttt{Soundness} & \texttt{multi\_arg\_pattern\_refinement\_sound} & Multi-arg telescope refinement soundness \\
+\texttt{Soundness} & \texttt{sized\_recursion\_terminates} & Transfinite well-founded sized recursion \\
+\texttt{Soundness} & \texttt{inOExt\_S\_iff} & Initial algebra stabilization at $\infty$ (\texttt{\#}) \\
+\texttt{Soundness} & \texttt{wrap\_covariant\_of\_nocc} & Covariance of \texttt{Wrap} under parameter \texttt{nocc} \\
+\texttt{Soundness} & \texttt{wrap\_not\_covariant\_without\_nocc} & Tightness of Bug 2 parameter \texttt{nocc} \\
+\texttt{Soundness} & \texttt{checkNoccEnv\_tightness} & Tightness of \texttt{checkNoccEnv} \\
+\texttt{Soundness} & \texttt{inStream\_contravariant}, \texttt{fibFrom\_productive} & Coinductive stream contravariance \& productivity \\
+\midrule
+\texttt{Metatheory} & \texttt{leqSize\_iterVSucc\_gen/both} & Universal $\$^n$ tower subtyping laws \\
+\texttt{Metatheory} & \texttt{inst\_iterVSucc\_infty} & Universal $\$^n$ tower stripping against \texttt{\#} \\
+\texttt{Metatheory} & \texttt{matchPat\_eraseSizes\_comm} & Universal size-erasure commutation for \texttt{matchPat} \\
+\texttt{Metatheory} & \texttt{succP\_breaks\_size\_erasure} & Tightness of Bug 5 (\texttt{cp (.SuccP \_) = false}) \\
+\texttt{Metatheory} & \texttt{nocc\_substVal\_id\_of\_normSizeOrAtom} & Universal \texttt{nocc} $\implies$ \texttt{substVal} identity \\
+\texttt{Metatheory} & \texttt{checkNoccEnv\_forall\_mem}, \texttt{checkNoccDomains\_pi} & Universal soundness of \texttt{checkNocc*} \\
+\texttt{Metatheory} & \texttt{compScalar\_maxScalar\_distrib\_left/right} & Scalar $\mathsf{Order}$ Kleene-semiring laws \\
+\texttt{Metatheory} & \texttt{maxO\_mat\_never\_mat}, \texttt{collapseOrder\_never\_mat} & Bug 3b matrix collapse invariants \\
+\texttt{Metatheory} & \texttt{isDecr\_mat\_iff}, \texttt{checkAll\_sound} & Universal SCT diagonal witness characterization \\
+\texttt{Metatheory} & \texttt{compScalar\_sound\_sizeOrd}, \texttt{no\_infinite\_decr\_sizeOrd} & Ordinal soundness \& well-foundedness of $\mathsf{Order}$ \\
+\texttt{Metatheory} & \texttt{collectCalls\_llet\_includes\_bound} & Bug 4 \texttt{LLet} call-extraction completeness \\
+\bottomrule
+\end{tabular}
+\caption{Summary of machine-checked theorems in \texttt{Mugda/Soundness.lean} and \texttt{Mugda/Metatheory.lean}.}
+\label{tab:theorems}
+\end{table}
+
+\begin{thebibliography}{9}
+\bibitem{mehltretter2007}
+Karl Mehltretter.
+\newblock \emph{Termination Checking for a Dependently Typed Language}.
+\newblock Diploma thesis, LMU Munich, December 2007 (supervised by Andreas Abel).
+
+\bibitem{lee2001}
+Chin Soon Lee, Neil D.\ Jones, and Amir M.\ Ben-Amram.
+\newblock The Size-Change Principle for Program Termination.
+\newblock In \emph{POPL 2001}, pp.\ 81--92. ACM, 2001.
+
+\bibitem{abel2006}
+Andreas Abel.
+\newblock \emph{A Polymorphic Lambda-Calculus with Sized Higher-Order Types}.
+\newblock PhD thesis, LMU Munich, 2006.
+
+\bibitem{abel2010}
+Andreas Abel.
+\newblock MiniAgda: Integrating Sized and Dependent Types.
+\newblock In \emph{PAR 2010}, EPTCS 43, pp.\ 14--28, 2010.
+
+\bibitem{roux2016}
+Cody Roux.
+\newblock Sized Types and Deep Pattern Matching at Limit Ordinals.
+\newblock Agda Issue Tracker (\#1946 and \#2820), 2016/2021.
+\end{thebibliography}
+
+\end{document}

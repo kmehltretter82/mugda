@@ -1,5 +1,7 @@
 # Mugda — Mini-Agda with Sized Types & Size-Change Termination (Pure Lean 4 Edition)
 
+[![Lean 4 Verification & Regression CI](https://github.com/kmehltretter82/mugda/actions/workflows/ci.yml/badge.svg)](https://github.com/kmehltretter82/mugda/actions/workflows/ci.yml)
+
 **Mugda** is a prototype dependently typed functional programming language and proof assistant originally created by **Karl Mehltretter** for his Diploma thesis at **LMU Munich** (December 2007 / April 2008, supervised by **Andreas Abel**), and now ported to and verified in the **pure constructive subset of Lean 4**.
 
 To our knowledge, Mugda was the first implementation to combine:
@@ -7,7 +9,8 @@ To our knowledge, Mugda was the first implementation to combine:
 2. **The Size-Change Termination (SCT) principle** of Lee, Jones, and Ben-Amram (using call matrices and idempotent completion); and
 3. **Explicit `Size` types with subtyping** (`$ i` for size successor and `#` for the closure ordinal $\infty$) to check both **termination** of non-structural recursive functions (such as Euclidean `div`, `gcd`, `quicksort`, `mergesort`, and rose-tree flattening) and **productivity** of corecursive definitions (`cofun` on sized `codata` streams and stream processors).
 
-👉 **[Launch the Interactive Mugda Browser Playground](https://kmehltretter82.github.io/mugda/)** *(runs in your browser with a live toggle between Original 2008 Mugda and Bug-Fixed Mugda)*
+👉 **[Launch the Interactive Mugda Browser Playground](https://kmehltretter82.github.io/mugda/)** *(runs in your browser with a live toggle between Original 2008 Mugda and Bug-Fixed Mugda)*  
+📄 **[Read the Technical Paper: *Mugda Revisited* (`MUGDA_REVISITED.md`)](MUGDA_REVISITED.md)** · **[Typeset PDF (`doc/mugda-revisited/mugda-revisited.pdf`)](doc/mugda-revisited/mugda-revisited.pdf)** · **[Original 2007/2008 Thesis PDF (`doc/da/da.pdf`)](doc/da/da.pdf)**
 
 ---
 
