@@ -20,7 +20,7 @@ This repository preserves the historical snapshots of Mugda alongside the modern
 | [`v2007-thesis`](https://github.com/kmehltretter82/mugda/tree/v2007-thesis) | Dec 22, 2007 | Exact untouched Diploma thesis submission snapshot. |
 | [`v2008-04`](https://github.com/kmehltretter82/mugda/tree/v2008-04) | Apr 20, 2008 | Author's April 2008 cleanup, talk slides (`slides/slides.tex`), and thesis typo fixes. |
 | [`v2008-04-ghc9`](https://github.com/kmehltretter82/mugda/tree/v2008-04-ghc9) | Apr 2008 + GHC 9 | Unpatched 2008 Mugda semantics made compilable with modern GHC 9.x (`mugda.cabal`, `Makefile`) + compiled `doc/da/da.pdf`. |
-| **`main`** | Modern Bug-Fixed | Fixes all 9 soundness and implementation bugs found during the complete code & thesis audit, adds [`examples/counterexamples/`](examples/counterexamples/), the Lean 4 soundness proof [`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean), [`BUG_REVIEW.md`](BUG_REVIEW.md), and the browser playground [`docs/index.html`](docs/index.html). |
+| **`main`** | Modern Bug-Fixed | Fixes all 9 soundness and implementation bugs found during the complete code & thesis audit, adds [`examples/counterexamples/`](examples/counterexamples/), the Lean 4 soundness proof [`formalization/MugdaSoundness.lean`](formalization/MugdaSoundness.lean), [`FORMALIZATION_PLAN.md`](FORMALIZATION_PLAN.md), [`BUG_REVIEW.md`](BUG_REVIEW.md), and the browser playground [`docs/index.html`](docs/index.html). |
 
 ---
 
