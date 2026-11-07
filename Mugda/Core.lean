@@ -413,6 +413,10 @@ mutual
           let n ← nocc fuel' k a v1
           let nl ← noccList fuel' k a vl
           pure (n && nl)
+      | .VGen i =>
+          match a with
+          | .VGen j => pure (j != i)
+          | _       => pure (a != .VGen i)
       | _ => pure (a != tv)
 
   def noccList (fuel : Nat) (k : Nat) (a : Val) (vs : List Val) : TypeCheck Bool :=
